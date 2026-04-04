@@ -1,7 +1,7 @@
 {
   "name": "@neuronsearchlab/mcp",
-  "version": "0.2.0",
-  "description": "MCP server for NeuronSearchLab — recommendations, events, catalogue management, and platform configuration",
+  "version": "0.4.0",
+  "description": "MCP server for NeuronSearchLab — recommendations, events, catalogue management, and full admin platform control",
   "type": "module",
   "bin": {
     "neuronsearchlab-mcp": "./dist/index.js"

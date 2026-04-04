@@ -155,6 +155,221 @@ const ToggleRuleInput = z.object({
   is_active: z.boolean().describe('Whether the rule should be active.'),
 });
 
+// ─── Additional pipeline / rule / context schemas ─────────────────────────────
+
+const GetContextInput = z.object({
+  context_id: z.number().int().describe('The context ID to retrieve.'),
+});
+
+const GetPipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to retrieve.'),
+});
+
+const ActivatePipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to activate.'),
+});
+
+const DeactivatePipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to deactivate.'),
+});
+
+const ClonePipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to clone.'),
+  name: z.string().min(1).describe('Name for the cloned pipeline.'),
+});
+
+const GetRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to retrieve.'),
+});
+
+const EnableRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to enable.'),
+});
+
+const DisableRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to disable.'),
+});
+
+const ReorderRulesInput = z.object({
+  rule_ids: z.array(z.number().int()).min(1).describe('Rule IDs in the desired priority order (first = highest priority).'),
+  context_id: z.number().int().optional().describe('Optional context ID to scope the reorder.'),
+});
+
+// ─── Segment schemas ──────────────────────────────────────────────────────────
+
+const GetSegmentInput = z.object({
+  segment_id: z.number().int().describe('The segment ID to retrieve.'),
+});
+
+const CreateSegmentInput = z.object({
+  name: z.string().min(1).describe('Segment display name.'),
+  description: z.string().optional().describe('Segment description.'),
+  conditions: z.array(z.object({
+    field: z.string().min(1).describe('User attribute or behavioural field to match.'),
+    operator: z.enum(['equals', 'not_equals', 'greater_than', 'less_than', 'in', 'not_in', 'exists']),
+    value: z.union([z.string(), z.number(), z.array(z.string())]).describe('Value to match.'),
+    type: z.enum(['behavioral', 'demographic', 'computed', 'item_interaction']).default('behavioral').describe('Condition category.'),
+  })).min(1).describe('Conditions that define segment membership.'),
+  is_active: z.boolean().default(true).describe('Whether the segment is active.'),
+});
+
+const UpdateSegmentInput = z.object({
+  segment_id: z.number().int().describe('The segment ID to update.'),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  is_active: z.boolean().optional(),
+  conditions: z.array(z.object({
+    field: z.string().min(1),
+    operator: z.enum(['equals', 'not_equals', 'greater_than', 'less_than', 'in', 'not_in', 'exists']),
+    value: z.union([z.string(), z.number(), z.array(z.string())]),
+    type: z.enum(['behavioral', 'demographic', 'computed', 'item_interaction']).default('behavioral'),
+  })).optional(),
+});
+
+const DeleteSegmentInput = z.object({
+  segment_id: z.number().int().describe('The segment ID to delete.'),
+});
+
+const GetSegmentStatsInput = z.object({
+  segment_id: z.number().int().describe('The segment ID to get stats for.'),
+});
+
+// ─── Experiment (A/B test) schemas ────────────────────────────────────────────
+
+const GetExperimentInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to retrieve.'),
+});
+
+const CreateExperimentInput = z.object({
+  name: z.string().min(1).describe('Experiment name.'),
+  description: z.string().optional().describe('Experiment description.'),
+  variants: z.array(z.object({
+    id: z.string().describe('Variant identifier (e.g. "control", "treatment").'),
+    name: z.string().describe('Variant display name.'),
+    description: z.string().optional(),
+    traffic_fraction: z.number().min(0).max(1).describe('Traffic fraction 0–1. All variants must sum to 1.0.'),
+    pipeline_id: z.number().int().optional().describe('Pipeline ID assigned to this variant.'),
+  })).min(2).describe('At least 2 variants required.'),
+});
+
+const UpdateExperimentInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to update.'),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  variants: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    traffic_fraction: z.number().min(0).max(1),
+    pipeline_id: z.number().int().optional(),
+  })).optional(),
+});
+
+const StartExperimentInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to start.'),
+});
+
+const StopExperimentInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to stop/complete.'),
+});
+
+const GetExperimentResultsInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to get statistical results for.'),
+});
+
+// ─── Campaign schemas ─────────────────────────────────────────────────────────
+
+const GetCampaignInput = z.object({
+  campaign_id: z.number().int().describe('The campaign ID to retrieve.'),
+});
+
+const CreateCampaignInput = z.object({
+  name: z.string().min(1).describe('Campaign display name.'),
+  description: z.string().optional().describe('Campaign description.'),
+  pipeline_id: z.number().int().optional().describe('Pipeline to apply this campaign to.'),
+  start_date: z.string().describe('Start datetime in ISO 8601 format (e.g. "2025-06-01T09:00:00Z").'),
+  end_date: z.string().describe('End datetime in ISO 8601 format.'),
+  rules: z.array(z.object({
+    rule_type: z.enum(['boost', 'bury', 'pin', 'filter', 'cap', 'diversity']),
+    conditions: z.array(z.object({
+      field: z.string(),
+      operator: z.string(),
+      value: z.union([z.string(), z.number(), z.array(z.string())]),
+    })),
+    actions: z.object({
+      type: z.string(),
+      weight: z.number().optional(),
+      pin_position: z.number().int().optional(),
+      cap_fraction: z.number().optional(),
+    }),
+  })).optional().describe('Ranking rules to inject during this campaign window.'),
+});
+
+const UpdateCampaignInput = z.object({
+  campaign_id: z.number().int().describe('The campaign ID to update.'),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  is_active: z.boolean().optional(),
+});
+
+const DeleteCampaignInput = z.object({
+  campaign_id: z.number().int().describe('The campaign ID to delete.'),
+});
+
+const ActivateCampaignInput = z.object({
+  campaign_id: z.number().int().describe('The campaign ID to activate.'),
+});
+
+const PauseCampaignInput = z.object({
+  campaign_id: z.number().int().describe('The campaign ID to pause.'),
+});
+
+// ─── Training job schemas ─────────────────────────────────────────────────────
+
+const GetTrainingJobInput = z.object({
+  job_id: z.string().describe('Training job ID or execution ARN.'),
+});
+
+const CreateTrainingJobInput = z.object({
+  model_type: z.string().optional().describe('Model type to train (e.g. "nsl-embed-v2"). Defaults to the team default.'),
+  config: z.record(z.unknown()).optional().describe('Training configuration overrides.'),
+});
+
+const CancelTrainingJobInput = z.object({
+  job_id: z.string().describe('Training job ID or execution ARN to cancel.'),
+});
+
+// ─── Analytics schemas ────────────────────────────────────────────────────────
+
+const GetRankingMetricsInput = z.object({
+  pipeline_id: z.number().int().optional().describe('Filter metrics to a specific pipeline.'),
+  context_id: z.number().int().optional().describe('Filter metrics to a specific context.'),
+  window: z.enum(['1d', '7d', '30d']).default('7d').describe('Time window for aggregation.'),
+});
+
+const GetExperimentMetricsInput = z.object({
+  experiment_id: z.number().int().describe('The experiment ID to get live metrics for.'),
+});
+
+const GetSegmentMetricsInput = z.object({
+  segment_id: z.number().int().describe('The segment ID to get performance metrics for.'),
+  window: z.enum(['1d', '7d', '30d']).default('7d').describe('Time window.'),
+});
+
+// ─── API key / integration schemas ───────────────────────────────────────────
+
+const CreateApiKeyInput = z.object({
+  name: z.string().min(1).describe('API key display name.'),
+  environment: z.enum(['production', 'staging', 'development']).default('production').describe('Environment for this key.'),
+  scopes: z.array(z.enum(['recommendations', 'events', 'items'])).default(['recommendations']).describe('Permissions granted to this key.'),
+});
+
+const RevokeApiKeyInput = z.object({
+  key_id: z.number().int().describe('The API key ID to revoke.'),
+});
+
 // ─── Response formatters ──────────────────────────────────────────────────────
 
 function formatRecommendations(res: any): string {
@@ -587,13 +802,513 @@ const TOOLS: Tool[] = [
       required: ['rule_id', 'is_active'],
     },
   },
+
+  // ── Additional context ops ─────────────────────────────────────────
+  {
+    name: 'get_context',
+    description: 'Get the full configuration of a specific recommendation context by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_id: { type: 'number', description: 'The context ID to retrieve.' },
+      },
+      required: ['context_id'],
+    },
+  },
+
+  // ── Additional pipeline ops ────────────────────────────────────────
+  {
+    name: 'get_pipeline',
+    description: 'Get the full configuration of a specific ranking pipeline by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to retrieve.' },
+      },
+      required: ['pipeline_id'],
+    },
+  },
+  {
+    name: 'activate_pipeline',
+    description: 'Activate a ranking pipeline so it begins serving ranked results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to activate.' },
+      },
+      required: ['pipeline_id'],
+    },
+  },
+  {
+    name: 'deactivate_pipeline',
+    description: 'Deactivate a ranking pipeline so it stops serving results without being deleted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to deactivate.' },
+      },
+      required: ['pipeline_id'],
+    },
+  },
+  {
+    name: 'clone_pipeline',
+    description: 'Duplicate an existing pipeline with all its stages and configuration. Useful for creating experiment variants or safe copies before making changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to clone.' },
+        name: { type: 'string', description: 'Name for the cloned pipeline.' },
+      },
+      required: ['pipeline_id', 'name'],
+    },
+  },
+
+  // ── Additional rule ops ────────────────────────────────────────────
+  {
+    name: 'get_rule',
+    description: 'Get the full configuration of a specific ranking rule by ID, including conditions and action.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to retrieve.' },
+      },
+      required: ['rule_id'],
+    },
+  },
+  {
+    name: 'enable_rule',
+    description: 'Enable a ranking rule that was previously disabled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to enable.' },
+      },
+      required: ['rule_id'],
+    },
+  },
+  {
+    name: 'disable_rule',
+    description: 'Disable a ranking rule without deleting it. Useful for temporarily pausing rules during debugging or campaigns.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to disable.' },
+      },
+      required: ['rule_id'],
+    },
+  },
+  {
+    name: 'reorder_rules',
+    description: 'Set the priority order of rules by providing rule IDs in the desired order. The first rule in the list gets the highest priority and is evaluated first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Rule IDs in descending priority order (first = highest priority).',
+        },
+        context_id: { type: 'number', description: 'Optional context ID to scope the reorder.' },
+      },
+      required: ['rule_ids'],
+    },
+  },
+
+  // ── Segment tools ──────────────────────────────────────────────────
+  {
+    name: 'list_segments',
+    description: 'List all user segments. Segments group users by shared behaviours or attributes and can be referenced in rules and campaigns.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_segment',
+    description: 'Get the full definition of a specific user segment, including all its conditions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        segment_id: { type: 'number', description: 'The segment ID to retrieve.' },
+      },
+      required: ['segment_id'],
+    },
+  },
+  {
+    name: 'create_segment',
+    description:
+      'Create a new user segment with membership conditions. ' +
+      'Condition types: behavioral (purchase/click history), demographic (age, location), ' +
+      'computed (ML scores), item_interaction (affinity to categories or items). ' +
+      'Example: power users who purchased 3+ times in 30 days.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Segment display name.' },
+        description: { type: 'string', description: 'Segment description.' },
+        conditions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string', description: 'User field to match (e.g. "purchase_count", "country").' },
+              operator: { type: 'string', enum: ['equals', 'not_equals', 'greater_than', 'less_than', 'in', 'not_in', 'exists'] },
+              value: { description: 'Value to match.' },
+              type: { type: 'string', enum: ['behavioral', 'demographic', 'computed', 'item_interaction'], description: 'Condition category.' },
+            },
+            required: ['field', 'operator', 'value'],
+          },
+          description: 'Conditions that define segment membership (all must match).',
+        },
+        is_active: { type: 'boolean', description: 'Whether the segment is active. Default: true.' },
+      },
+      required: ['name', 'conditions'],
+    },
+  },
+  {
+    name: 'update_segment',
+    description: 'Update an existing user segment definition.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        segment_id: { type: 'number', description: 'The segment ID to update.' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        is_active: { type: 'boolean' },
+        conditions: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['segment_id'],
+    },
+  },
+  {
+    name: 'delete_segment',
+    description: 'Delete a user segment. Any rules referencing this segment will need to be updated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        segment_id: { type: 'number', description: 'The segment ID to delete.' },
+      },
+      required: ['segment_id'],
+    },
+  },
+  {
+    name: 'get_segment_stats',
+    description: 'Get size and overlap statistics for a user segment — how many users match, percentage of total users, and overlap with other segments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        segment_id: { type: 'number', description: 'The segment ID to get stats for.' },
+      },
+      required: ['segment_id'],
+    },
+  },
+
+  // ── A/B Experiment tools ───────────────────────────────────────────
+  {
+    name: 'list_experiments',
+    description: 'List all A/B experiments with their current status (draft, running, paused, completed).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_experiment',
+    description: 'Get the full configuration of a specific A/B experiment including variants, traffic splits, and current metrics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to retrieve.' },
+      },
+      required: ['experiment_id'],
+    },
+  },
+  {
+    name: 'create_experiment',
+    description:
+      'Create a new A/B experiment comparing pipeline variants. ' +
+      'Specify 2+ variants with traffic fractions summing to 1.0. ' +
+      'Each variant can point to a different pipeline_id. ' +
+      'Start it with start_experiment after creating.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Experiment name.' },
+        description: { type: 'string', description: 'Experiment description.' },
+        variants: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Variant ID (e.g. "control", "treatment").' },
+              name: { type: 'string', description: 'Display name.' },
+              traffic_fraction: { type: 'number', description: 'Traffic fraction 0–1.' },
+              pipeline_id: { type: 'number', description: 'Pipeline assigned to this variant.' },
+            },
+            required: ['id', 'name', 'traffic_fraction'],
+          },
+          description: 'Variants (minimum 2). Traffic fractions must sum to 1.0.',
+        },
+      },
+      required: ['name', 'variants'],
+    },
+  },
+  {
+    name: 'update_experiment',
+    description: 'Update an experiment that is in draft status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to update.' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        variants: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['experiment_id'],
+    },
+  },
+  {
+    name: 'start_experiment',
+    description: 'Start an A/B experiment. Traffic will begin splitting between variants immediately. The experiment moves from draft to running status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to start.' },
+      },
+      required: ['experiment_id'],
+    },
+  },
+  {
+    name: 'stop_experiment',
+    description: 'Stop a running A/B experiment and mark it as completed. Results are preserved for analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to stop.' },
+      },
+      required: ['experiment_id'],
+    },
+  },
+  {
+    name: 'get_experiment_results',
+    description: 'Get statistical results for a completed or running experiment — per-variant CTR, conversion rate, revenue per session, sample sizes, and a winner recommendation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to get results for.' },
+      },
+      required: ['experiment_id'],
+    },
+  },
+
+  // ── Campaign tools ─────────────────────────────────────────────────
+  {
+    name: 'list_campaigns',
+    description: 'List all campaigns — time-bounded rule injections that activate on a schedule (e.g. flash sales, seasonal promotions).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_campaign',
+    description: 'Get the full configuration of a specific campaign including start/end dates and injected rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'number', description: 'The campaign ID to retrieve.' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'create_campaign',
+    description:
+      'Create a time-bounded campaign that injects ranking rules between a start and end datetime. ' +
+      'Use this for flash sales, seasonal promotions, or any time-limited merchandising. ' +
+      'The rules activate automatically at start_date and deactivate at end_date.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Campaign display name.' },
+        description: { type: 'string', description: 'Campaign description.' },
+        pipeline_id: { type: 'number', description: 'Pipeline to apply this campaign to.' },
+        start_date: { type: 'string', description: 'Start datetime in ISO 8601 (e.g. "2025-06-01T09:00:00Z").' },
+        end_date: { type: 'string', description: 'End datetime in ISO 8601.' },
+        rules: {
+          type: 'array',
+          items: { type: 'object' },
+          description: 'Ranking rules to inject during this campaign window.',
+        },
+      },
+      required: ['name', 'start_date', 'end_date'],
+    },
+  },
+  {
+    name: 'update_campaign',
+    description: 'Update a campaign — change its name, description, or start/end dates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'number', description: 'The campaign ID to update.' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        start_date: { type: 'string' },
+        end_date: { type: 'string' },
+        is_active: { type: 'boolean' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'delete_campaign',
+    description: 'Delete a campaign and its associated rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'number', description: 'The campaign ID to delete.' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'activate_campaign',
+    description: 'Activate a paused campaign so it starts injecting rules again.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'number', description: 'The campaign ID to activate.' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'pause_campaign',
+    description: 'Pause an active campaign, temporarily stopping its rule injections without deleting it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'number', description: 'The campaign ID to pause.' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+
+  // ── Training job tools ─────────────────────────────────────────────
+  {
+    name: 'list_training_jobs',
+    description: 'List recent model training jobs with their status (running, completed, failed). Training jobs re-train the ranking model on new interaction data.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_training_job',
+    description: 'Get details and logs for a specific training job.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        job_id: { type: 'string', description: 'Training job ID or execution ARN.' },
+      },
+      required: ['job_id'],
+    },
+  },
+  {
+    name: 'create_training_job',
+    description: 'Trigger a new model training job. The job trains on all available interaction data and replaces the current model when complete.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        model_type: { type: 'string', description: 'Model type to train (e.g. "nsl-embed-v2"). Uses team default if omitted.' },
+        config: { type: 'object', description: 'Training configuration overrides.', additionalProperties: true },
+      },
+    },
+  },
+  {
+    name: 'cancel_training_job',
+    description: 'Cancel a running training job.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        job_id: { type: 'string', description: 'Training job ID or execution ARN to cancel.' },
+      },
+      required: ['job_id'],
+    },
+  },
+
+  // ── Analytics / Metrics tools ──────────────────────────────────────
+  {
+    name: 'get_ranking_metrics',
+    description:
+      'Get ranking performance metrics for a pipeline or context: CTR by position, overall CTR, conversion rate, diversity score, catalogue coverage, and revenue per session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'Filter metrics to a specific pipeline.' },
+        context_id: { type: 'number', description: 'Filter metrics to a specific context.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d'], description: 'Time window. Default: 7d.' },
+      },
+    },
+  },
+  {
+    name: 'get_experiment_metrics',
+    description: 'Get live metrics for a specific A/B experiment broken down by variant — CTR, conversion rate, revenue per session, and statistical significance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        experiment_id: { type: 'number', description: 'The experiment ID to get metrics for.' },
+      },
+      required: ['experiment_id'],
+    },
+  },
+  {
+    name: 'get_segment_metrics',
+    description: 'Get ranking performance metrics broken down by user segment — useful for understanding how different user groups respond to your ranking configuration.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        segment_id: { type: 'number', description: 'The segment ID to get metrics for.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d'], description: 'Time window. Default: 7d.' },
+      },
+      required: ['segment_id'],
+    },
+  },
+
+  // ── API Key & Integration tools ────────────────────────────────────
+  {
+    name: 'list_api_keys',
+    description: 'List all API keys for the team with their names, scopes, environments, and last-used timestamps.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_api_key',
+    description: 'Create a new API key with specified permissions (scopes). The full key is returned once and cannot be retrieved again.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'API key display name.' },
+        environment: { type: 'string', enum: ['production', 'staging', 'development'], description: 'Environment for this key. Default: production.' },
+        scopes: {
+          type: 'array',
+          items: { type: 'string', enum: ['recommendations', 'events', 'items'] },
+          description: 'Permissions granted to this key. Default: ["recommendations"].',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'revoke_api_key',
+    description: 'Revoke an API key. This immediately invalidates the key and cannot be undone.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key_id: { type: 'number', description: 'The API key ID to revoke.' },
+      },
+      required: ['key_id'],
+    },
+  },
+  {
+    name: 'list_integrations',
+    description: 'List configured third-party integrations (webhooks, data connectors, export targets, etc.).',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 // ─── Server factory ───────────────────────────────────────────────────────────
 
 export function createServer(client: NeuronClient): Server {
   const server = new Server(
-    { name: 'neuronsearchlab', version: '0.2.0' },
+    { name: 'neuronsearchlab', version: '0.4.0' },
     { capabilities: { tools: {} } },
   );
 
@@ -922,6 +1637,342 @@ export function createServer(client: NeuronClient): Server {
               text: `✅ Rule ${input.rule_id} is now ${input.is_active ? 'active' : 'inactive'}.\n${JSON.stringify(res, null, 2)}`,
             }],
           };
+        }
+
+        // ── Additional context ops ────────────────────────────────────
+        case 'get_context': {
+          const input = GetContextInput.parse(args);
+          const res = await client.get<any>(`/contexts/${input.context_id}`);
+          return { content: [{ type: 'text', text: `Context ${input.context_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── Additional pipeline ops ───────────────────────────────────
+        case 'get_pipeline': {
+          const input = GetPipelineInput.parse(args);
+          const res = await client.get<any>(`/pipelines/${input.pipeline_id}`);
+          return { content: [{ type: 'text', text: `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'activate_pipeline': {
+          const input = ActivatePipelineInput.parse(args);
+          const res = await client.patch(`/pipelines/${input.pipeline_id}`, { is_active: true });
+          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'deactivate_pipeline': {
+          const input = DeactivatePipelineInput.parse(args);
+          const res = await client.patch(`/pipelines/${input.pipeline_id}`, { is_active: false });
+          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'clone_pipeline': {
+          const input = ClonePipelineInput.parse(args);
+          const res = await client.post(`/pipelines/${input.pipeline_id}/clone`, { name: input.name });
+          return { content: [{ type: 'text', text: `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── Additional rule ops ───────────────────────────────────────
+        case 'get_rule': {
+          const input = GetRuleInput.parse(args);
+          const res = await client.get<any>(`/rules/${input.rule_id}`);
+          return { content: [{ type: 'text', text: `Rule ${input.rule_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'enable_rule': {
+          const input = EnableRuleInput.parse(args);
+          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: true });
+          return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} enabled.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'disable_rule': {
+          const input = DisableRuleInput.parse(args);
+          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: false });
+          return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} disabled.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'reorder_rules': {
+          const input = ReorderRulesInput.parse(args);
+          const res = await client.post('/rules/reorder', {
+            rule_ids: input.rule_ids,
+            ...(input.context_id !== undefined && { context_id: input.context_id }),
+          });
+          return { content: [{ type: 'text', text: `✅ Rules reordered.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── Segment management ────────────────────────────────────────
+        case 'list_segments': {
+          const res = await client.get<any[]>('/segments');
+          const text = formatList('segment(s)', res ?? [], (s) =>
+            `[id: ${s.id}] ${s.name} (active: ${s.is_active}, size: ~${s.estimated_size ?? '?'} users)`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'get_segment': {
+          const input = GetSegmentInput.parse(args);
+          const res = await client.get<any>(`/segments/${input.segment_id}`);
+          return { content: [{ type: 'text', text: `Segment ${input.segment_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'create_segment': {
+          const input = CreateSegmentInput.parse(args);
+          const res = await client.post('/segments', {
+            name: input.name,
+            description: input.description,
+            conditions: input.conditions,
+            is_active: input.is_active,
+          });
+          return { content: [{ type: 'text', text: `✅ Segment created.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'update_segment': {
+          const input = UpdateSegmentInput.parse(args);
+          const { segment_id, ...body } = input;
+          const res = await client.patch(`/segments/${segment_id}`, body);
+          return { content: [{ type: 'text', text: `✅ Segment ${segment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'delete_segment': {
+          const input = DeleteSegmentInput.parse(args);
+          await client.delete(`/segments/${input.segment_id}`);
+          return { content: [{ type: 'text', text: `✅ Segment ${input.segment_id} deleted.` }] };
+        }
+
+        case 'get_segment_stats': {
+          const input = GetSegmentStatsInput.parse(args);
+          const res = await client.get<any>(`/segments/${input.segment_id}/stats`);
+          if (!res) return { content: [{ type: 'text', text: 'No stats available for this segment yet.' }] };
+          const lines = [
+            `Segment ${input.segment_id} stats:`,
+            `  estimated_size: ${res.estimated_size ?? 'unknown'} users`,
+            `  pct_of_total: ${res.pct_of_total != null ? `${(res.pct_of_total * 100).toFixed(1)}%` : 'unknown'}`,
+          ];
+          if (res.overlaps?.length) {
+            lines.push('', 'Overlaps with other segments:');
+            for (const o of res.overlaps) lines.push(`  - ${o.name}: ${(o.overlap_pct * 100).toFixed(1)}%`);
+          }
+          return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+
+        // ── Experiment (A/B test) management ─────────────────────────
+        case 'list_experiments': {
+          const res = await client.get<any[]>('/experiments');
+          const text = formatList('experiment(s)', res ?? [], (e) =>
+            `[id: ${e.id}] ${e.name} (status: ${e.status}, variants: ${e.variants?.length ?? '?'})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'get_experiment': {
+          const input = GetExperimentInput.parse(args);
+          const res = await client.get<any>(`/experiments/${input.experiment_id}`);
+          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'create_experiment': {
+          const input = CreateExperimentInput.parse(args);
+          const res = await client.post('/experiments', {
+            name: input.name,
+            description: input.description,
+            variants: input.variants,
+          });
+          return { content: [{ type: 'text', text: `✅ Experiment created. Use start_experiment to begin traffic splitting.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'update_experiment': {
+          const input = UpdateExperimentInput.parse(args);
+          const { experiment_id, ...body } = input;
+          const res = await client.patch(`/experiments/${experiment_id}`, body);
+          return { content: [{ type: 'text', text: `✅ Experiment ${experiment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'start_experiment': {
+          const input = StartExperimentInput.parse(args);
+          const res = await client.post(`/experiments/${input.experiment_id}/start`, {});
+          return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} started. Traffic is now splitting between variants.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'stop_experiment': {
+          const input = StopExperimentInput.parse(args);
+          const res = await client.post(`/experiments/${input.experiment_id}/stop`, {});
+          return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} stopped. Use get_experiment_results to view final results.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'get_experiment_results': {
+          const input = GetExperimentResultsInput.parse(args);
+          const res = await client.get<any>(`/experiments/${input.experiment_id}/results`);
+          if (!res) return { content: [{ type: 'text', text: 'No results available yet — experiment may still be running or has no data.' }] };
+          const lines = [`Experiment ${input.experiment_id} results:`, ''];
+          if (res.variants) {
+            for (const v of res.variants) {
+              lines.push(`Variant: ${v.name} (id: ${v.id})`);
+              if (v.ctr != null) lines.push(`  CTR: ${(v.ctr * 100).toFixed(2)}%`);
+              if (v.conversion_rate != null) lines.push(`  Conversion: ${(v.conversion_rate * 100).toFixed(2)}%`);
+              if (v.revenue_per_session != null) lines.push(`  Revenue/session: $${v.revenue_per_session.toFixed(2)}`);
+              if (v.sample_size != null) lines.push(`  Sample size: ${v.sample_size}`);
+              lines.push('');
+            }
+          }
+          if (res.winner) lines.push(`🏆 Recommended winner: ${res.winner}`);
+          return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+
+        // ── Campaign management ───────────────────────────────────────
+        case 'list_campaigns': {
+          const res = await client.get<any[]>('/campaigns');
+          const text = formatList('campaign(s)', res ?? [], (c) =>
+            `[id: ${c.id}] ${c.name} (active: ${c.is_active}, ${c.start_date} → ${c.end_date})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'get_campaign': {
+          const input = GetCampaignInput.parse(args);
+          const res = await client.get<any>(`/campaigns/${input.campaign_id}`);
+          return { content: [{ type: 'text', text: `Campaign ${input.campaign_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'create_campaign': {
+          const input = CreateCampaignInput.parse(args);
+          const res = await client.post('/campaigns', {
+            name: input.name,
+            description: input.description,
+            pipeline_id: input.pipeline_id,
+            start_date: input.start_date,
+            end_date: input.end_date,
+            rules: input.rules ?? [],
+          });
+          return { content: [{ type: 'text', text: `✅ Campaign created.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'update_campaign': {
+          const input = UpdateCampaignInput.parse(args);
+          const { campaign_id, ...body } = input;
+          const res = await client.patch(`/campaigns/${campaign_id}`, body);
+          return { content: [{ type: 'text', text: `✅ Campaign ${campaign_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'delete_campaign': {
+          const input = DeleteCampaignInput.parse(args);
+          await client.delete(`/campaigns/${input.campaign_id}`);
+          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} deleted.` }] };
+        }
+
+        case 'activate_campaign': {
+          const input = ActivateCampaignInput.parse(args);
+          const res = await client.patch(`/campaigns/${input.campaign_id}`, { is_active: true });
+          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'pause_campaign': {
+          const input = PauseCampaignInput.parse(args);
+          const res = await client.patch(`/campaigns/${input.campaign_id}`, { is_active: false });
+          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} paused.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── Training jobs ─────────────────────────────────────────────
+        case 'list_training_jobs': {
+          const res = await client.get<any[]>('/training-jobs');
+          const text = formatList('training job(s)', res ?? [], (j) =>
+            `[id: ${j.id ?? j.job_id}] status: ${j.status} (${j.created_at ?? 'unknown date'})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'get_training_job': {
+          const input = GetTrainingJobInput.parse(args);
+          const res = await client.get<any>(`/training-jobs/${encodeURIComponent(input.job_id)}`);
+          return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'create_training_job': {
+          const input = CreateTrainingJobInput.parse(args);
+          const res = await client.post('/training-jobs', {
+            model_type: input.model_type,
+            config: input.config ?? {},
+          });
+          return { content: [{ type: 'text', text: `✅ Training job started.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'cancel_training_job': {
+          const input = CancelTrainingJobInput.parse(args);
+          const res = await client.post(`/training-jobs/${encodeURIComponent(input.job_id)}/cancel`, {});
+          return { content: [{ type: 'text', text: `✅ Training job ${input.job_id} cancelled.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── Analytics / Metrics ───────────────────────────────────────
+        case 'get_ranking_metrics': {
+          const input = GetRankingMetricsInput.parse(args);
+          const res = await client.get<any>('/analytics/ranking', {
+            pipeline_id: input.pipeline_id,
+            context_id: input.context_id,
+            window: input.window,
+          });
+          if (!res) return { content: [{ type: 'text', text: 'No metrics data available for the selected window.' }] };
+          const lines = [`Ranking metrics (${input.window}):`, ''];
+          if (res.ctr != null) lines.push(`  Overall CTR: ${(res.ctr * 100).toFixed(2)}%`);
+          if (res.conversion_rate != null) lines.push(`  Conversion rate: ${(res.conversion_rate * 100).toFixed(2)}%`);
+          if (res.diversity_score != null) lines.push(`  Diversity score: ${res.diversity_score.toFixed(3)}`);
+          if (res.coverage != null) lines.push(`  Catalogue coverage: ${(res.coverage * 100).toFixed(1)}%`);
+          if (res.revenue_per_session != null) lines.push(`  Revenue per session: $${res.revenue_per_session.toFixed(2)}`);
+          if (res.ctr_by_position?.length) {
+            lines.push('', '  CTR by position:');
+            for (const [i, ctr] of res.ctr_by_position.entries()) {
+              lines.push(`    Position ${i + 1}: ${(ctr * 100).toFixed(2)}%`);
+            }
+          }
+          return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+
+        case 'get_experiment_metrics': {
+          const input = GetExperimentMetricsInput.parse(args);
+          const res = await client.get<any>(`/analytics/experiments/${input.experiment_id}`);
+          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} metrics:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'get_segment_metrics': {
+          const input = GetSegmentMetricsInput.parse(args);
+          const res = await client.get<any>(`/analytics/segments/${input.segment_id}`, { window: input.window });
+          return { content: [{ type: 'text', text: `Segment ${input.segment_id} metrics (${input.window}):\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        // ── API Keys & Integrations ───────────────────────────────────
+        case 'list_api_keys': {
+          const res = await client.get<any[]>('/api-keys');
+          const text = formatList('API key(s)', res ?? [], (k) =>
+            `[id: ${k.id}] ${k.name} (${k.environment}, scopes: ${(k.scopes ?? []).join(', ')}, revoked: ${k.revoked})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'create_api_key': {
+          const input = CreateApiKeyInput.parse(args);
+          const res = await client.post<any>('/api-keys', {
+            name: input.name,
+            environment: input.environment,
+            scopes: input.scopes,
+          });
+          const lines = [
+            '✅ API key created.',
+            `⚠️  Save the full key now — it cannot be retrieved again.`,
+            '',
+            `Full key: ${res.fullKey ?? res.key ?? 'see response below'}`,
+          ];
+          return { content: [{ type: 'text', text: `${lines.join('\n')}\n\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'revoke_api_key': {
+          const input = RevokeApiKeyInput.parse(args);
+          await client.delete(`/api-keys/${input.key_id}`);
+          return { content: [{ type: 'text', text: `✅ API key ${input.key_id} revoked. It will no longer authenticate.` }] };
+        }
+
+        case 'list_integrations': {
+          const res = await client.get<any[]>('/integrations');
+          const text = formatList('integration(s)', res ?? [], (i) =>
+            `[id: ${i.id}] ${i.name} (type: ${i.type ?? 'n/a'}, status: ${i.status ?? 'unknown'})`,
+          );
+          return { content: [{ type: 'text', text }] };
         }
 
         default:
