@@ -1308,7 +1308,7 @@ const TOOLS: Tool[] = [
 
 export function createServer(client: NeuronClient): Server {
   const server = new Server(
-    { name: 'neuronsearchlab', version: '0.4.0' },
+    { name: 'neuronsearchlab', version: '0.3.0' },
     { capabilities: { tools: {} } },
   );
 
