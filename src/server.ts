@@ -59,6 +59,102 @@ const ExplainRankingInput = z.object({
   context_id: z.string().optional().describe('Context ID to apply scoring rules from.'),
 });
 
+// ─── Platform management schemas ──────────────────────────────────────────────
+
+const CreateContextInput = z.object({
+  context_name: z.string().min(1).describe('Display name for the context (e.g. "Twitter Feed", "Homepage").'),
+  context_key: z.string().optional().describe('URL-safe key. Auto-derived from name if omitted.'),
+  context_type: z.enum(['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising']).default('homepage_feed').describe('The type of feed surface.'),
+  description: z.string().optional().describe('Optional description of this context.'),
+  recommendation_type: z.enum(['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user']).default('user_to_item').describe('The recommendation model type.'),
+});
+
+const UpdateContextInput = z.object({
+  context_id: z.number().int().describe('The context ID to update.'),
+  context_name: z.string().min(1).optional().describe('New display name.'),
+  context_type: z.enum(['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising']).optional(),
+  description: z.string().optional(),
+  recommendation_type: z.enum(['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user']).optional(),
+});
+
+const DeleteContextInput = z.object({
+  context_id: z.number().int().describe('The context ID to delete.'),
+});
+
+const CreatePipelineInput = z.object({
+  name: z.string().min(1).describe('Pipeline display name.'),
+  description: z.string().optional().describe('Optional description.'),
+  context_id: z.number().int().optional().describe('Context ID to attach this pipeline to.'),
+  is_active: z.boolean().default(true).describe('Whether the pipeline is active.'),
+});
+
+const UpdatePipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to update.'),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  context_id: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+});
+
+const DeletePipelineInput = z.object({
+  pipeline_id: z.number().int().describe('The pipeline ID to delete.'),
+});
+
+const ListRulesInput = z.object({
+  context_id: z.number().int().optional().describe('Optional context ID to filter rules.'),
+});
+
+const CreateRuleInput = z.object({
+  context_id: z.number().int().optional().describe('Context ID to scope this rule to.'),
+  name: z.string().min(1).describe('Rule display name.'),
+  description: z.string().optional().describe('Rule description.'),
+  priority: z.number().int().min(0).max(1000).default(100).describe('Priority (higher = evaluated first).'),
+  rule_type: z.enum(['boost', 'bury', 'pin', 'filter', 'cap', 'diversity']).describe('The type of ranking rule.'),
+  conditions: z.array(z.object({
+    field: z.string().min(1).describe('Metadata field to match on.'),
+    operator: z.enum(['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than', 'in', 'not_in', 'exists', 'not_exists']),
+    value: z.union([z.string(), z.number(), z.array(z.string())]).describe('Value to match.'),
+  })).min(1).describe('Conditions that items must match.'),
+  actions: z.object({
+    type: z.enum(['boost', 'bury', 'pin', 'filter', 'cap', 'diversity']),
+    weight: z.number().min(0).max(5).optional().describe('Boost/bury multiplier.'),
+    pin_position: z.number().int().min(1).optional().describe('Pin position (1-based).'),
+    cap_fraction: z.number().min(0).max(1).optional().describe('Max fraction for cap rules.'),
+    diversity_field: z.string().optional().describe('Field for diversity grouping.'),
+    diversity_max: z.number().int().min(1).optional().describe('Max items per diversity bucket.'),
+  }).describe('Action to apply when conditions match.'),
+});
+
+const UpdateRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to update.'),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
+  is_active: z.boolean().optional(),
+  conditions: z.array(z.object({
+    field: z.string().min(1),
+    operator: z.enum(['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than', 'in', 'not_in', 'exists', 'not_exists']),
+    value: z.union([z.string(), z.number(), z.array(z.string())]),
+  })).optional(),
+  actions: z.object({
+    type: z.enum(['boost', 'bury', 'pin', 'filter', 'cap', 'diversity']),
+    weight: z.number().min(0).max(5).optional(),
+    pin_position: z.number().int().min(1).optional(),
+    cap_fraction: z.number().min(0).max(1).optional(),
+    diversity_field: z.string().optional(),
+    diversity_max: z.number().int().min(1).optional(),
+  }).optional(),
+});
+
+const DeleteRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to delete.'),
+});
+
+const ToggleRuleInput = z.object({
+  rule_id: z.number().int().describe('The rule ID to toggle.'),
+  is_active: z.boolean().describe('Whether the rule should be active.'),
+});
+
 // ─── Response formatters ──────────────────────────────────────────────────────
 
 function formatRecommendations(res: any): string {
@@ -100,9 +196,17 @@ function formatRecommendations(res: any): string {
   return lines.join('\n');
 }
 
+function formatList(label: string, items: any[], formatter: (item: any) => string): string {
+  if (!items?.length) return `No ${label} found.`;
+  const lines = [`Found ${items.length} ${label}:`, ''];
+  for (const item of items) lines.push(`• ${formatter(item)}`);
+  return lines.join('\n');
+}
+
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
 const TOOLS: Tool[] = [
+  // ── API tools ───────────────────────────────────────────────────────
   {
     name: 'get_recommendations',
     description:
@@ -240,13 +344,256 @@ const TOOLS: Tool[] = [
       required: ['item_id'],
     },
   },
+
+  // ── Platform management tools ───────────────────────────────────────
+  {
+    name: 'list_contexts',
+    description:
+      'List all recommendation contexts (feeds) configured for your team. ' +
+      'Contexts define how recommendations are scoped, filtered, and grouped.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_context',
+    description:
+      'Create a new recommendation context (feed). ' +
+      'A context defines a feed surface — e.g. a homepage feed, a "you may also like" section, or a search assist panel. ' +
+      'After creating a context, create a pipeline and optionally rules to control ranking.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_name: { type: 'string', description: 'Display name (e.g. "Twitter Feed", "Homepage").' },
+        context_key: { type: 'string', description: 'URL-safe key. Auto-derived from name if omitted.' },
+        context_type: {
+          type: 'string',
+          enum: ['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising'],
+          description: 'The type of feed surface. Default: homepage_feed.',
+        },
+        description: { type: 'string', description: 'Optional description.' },
+        recommendation_type: {
+          type: 'string',
+          enum: ['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user'],
+          description: 'Recommendation model type. Default: user_to_item.',
+        },
+      },
+      required: ['context_name'],
+    },
+  },
+  {
+    name: 'update_context',
+    description: 'Update an existing recommendation context.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_id: { type: 'number', description: 'The context ID to update.' },
+        context_name: { type: 'string', description: 'New display name.' },
+        context_type: {
+          type: 'string',
+          enum: ['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising'],
+        },
+        description: { type: 'string' },
+        recommendation_type: {
+          type: 'string',
+          enum: ['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user'],
+        },
+      },
+      required: ['context_id'],
+    },
+  },
+  {
+    name: 'delete_context',
+    description: 'Delete a recommendation context. This also removes associated pipelines and rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_id: { type: 'number', description: 'The context ID to delete.' },
+      },
+      required: ['context_id'],
+    },
+  },
+  {
+    name: 'list_pipelines',
+    description:
+      'List all ranking pipelines. ' +
+      'Pipelines define the sequence of stages (candidate generation, scoring, rules, post-processing) ' +
+      'that transform raw candidates into a ranked feed.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_pipeline',
+    description:
+      'Create a new ranking pipeline with default stages. ' +
+      'Optionally attach it to a context. The pipeline starts active by default.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Pipeline display name.' },
+        description: { type: 'string', description: 'Optional description.' },
+        context_id: { type: 'number', description: 'Context ID to attach this pipeline to.' },
+        is_active: { type: 'boolean', description: 'Whether the pipeline is active. Default: true.' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'update_pipeline',
+    description: 'Update an existing ranking pipeline.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to update.' },
+        name: { type: 'string', description: 'New pipeline name.' },
+        description: { type: 'string' },
+        context_id: { type: 'number', description: 'New context ID to attach.' },
+        is_active: { type: 'boolean' },
+      },
+      required: ['pipeline_id'],
+    },
+  },
+  {
+    name: 'delete_pipeline',
+    description: 'Delete a ranking pipeline.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pipeline_id: { type: 'number', description: 'The pipeline ID to delete.' },
+      },
+      required: ['pipeline_id'],
+    },
+  },
+  {
+    name: 'list_rules',
+    description:
+      'List ranking rules, optionally filtered by context. ' +
+      'Rules modify the ranking output — boost, bury, pin, filter, cap, or diversify items.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_id: { type: 'number', description: 'Optional context ID to filter rules.' },
+      },
+    },
+  },
+  {
+    name: 'create_rule',
+    description:
+      'Create a new ranking rule. Rule types: ' +
+      'boost (increase score), bury (decrease score), pin (fix position), ' +
+      'filter (remove items), cap (limit fraction), diversity (spread categories). ' +
+      'Each rule has conditions (which items match) and an action (what to do).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context_id: { type: 'number', description: 'Context ID to scope this rule to.' },
+        name: { type: 'string', description: 'Rule display name.' },
+        description: { type: 'string', description: 'Rule description.' },
+        priority: { type: 'number', description: 'Priority (0–1000, higher = first). Default: 100.' },
+        rule_type: {
+          type: 'string',
+          enum: ['boost', 'bury', 'pin', 'filter', 'cap', 'diversity'],
+          description: 'The type of ranking rule.',
+        },
+        conditions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string', description: 'Metadata field to match.' },
+              operator: {
+                type: 'string',
+                enum: ['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than', 'in', 'not_in', 'exists', 'not_exists'],
+              },
+              value: { description: 'Value to match (string, number, or array of strings).' },
+            },
+            required: ['field', 'operator', 'value'],
+          },
+          description: 'Conditions that items must match.',
+        },
+        actions: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['boost', 'bury', 'pin', 'filter', 'cap', 'diversity'] },
+            weight: { type: 'number', description: 'Boost/bury multiplier (0–5).' },
+            pin_position: { type: 'number', description: 'Pin position (1-based).' },
+            cap_fraction: { type: 'number', description: 'Max fraction (0–1) for cap rules.' },
+            diversity_field: { type: 'string', description: 'Field for diversity grouping.' },
+            diversity_max: { type: 'number', description: 'Max items per diversity bucket.' },
+          },
+          required: ['type'],
+          description: 'Action to apply when conditions match.',
+        },
+      },
+      required: ['name', 'rule_type', 'conditions', 'actions'],
+    },
+  },
+  {
+    name: 'update_rule',
+    description: 'Update an existing ranking rule.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to update.' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        priority: { type: 'number' },
+        is_active: { type: 'boolean' },
+        conditions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field: { type: 'string' },
+              operator: { type: 'string', enum: ['equals', 'not_equals', 'contains', 'not_contains', 'greater_than', 'less_than', 'in', 'not_in', 'exists', 'not_exists'] },
+              value: {},
+            },
+            required: ['field', 'operator', 'value'],
+          },
+        },
+        actions: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['boost', 'bury', 'pin', 'filter', 'cap', 'diversity'] },
+            weight: { type: 'number' },
+            pin_position: { type: 'number' },
+            cap_fraction: { type: 'number' },
+            diversity_field: { type: 'string' },
+            diversity_max: { type: 'number' },
+          },
+          required: ['type'],
+        },
+      },
+      required: ['rule_id'],
+    },
+  },
+  {
+    name: 'delete_rule',
+    description: 'Delete a ranking rule.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to delete.' },
+      },
+      required: ['rule_id'],
+    },
+  },
+  {
+    name: 'toggle_rule',
+    description: 'Enable or disable a ranking rule without deleting it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'number', description: 'The rule ID to toggle.' },
+        is_active: { type: 'boolean', description: 'Whether the rule should be active.' },
+      },
+      required: ['rule_id', 'is_active'],
+    },
+  },
 ];
 
 // ─── Server factory ───────────────────────────────────────────────────────────
 
 export function createServer(client: NeuronClient): Server {
   const server = new Server(
-    { name: 'neuronsearchlab', version: '0.1.0' },
+    { name: 'neuronsearchlab', version: '0.2.0' },
     { capabilities: { tools: {} } },
   );
 
@@ -259,6 +606,7 @@ export function createServer(client: NeuronClient): Server {
 
     try {
       switch (name) {
+        // ── API tools ─────────────────────────────────────────────────
         case 'get_recommendations': {
           const input = GetRecommendationsInput.parse(args);
           const res = await client.get('/recommendations', {
@@ -421,6 +769,159 @@ export function createServer(client: NeuronClient): Server {
           }
 
           return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+
+        // ── Context management ────────────────────────────────────────
+        case 'list_contexts': {
+          const res = await client.get<any[]>('/contexts');
+          const text = formatList('context(s)', res, (c) =>
+            `[id: ${c.id}] ${c.context_name ?? c.name} (type: ${c.context_type ?? 'n/a'}, key: ${c.context_key ?? 'n/a'})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'create_context': {
+          const input = CreateContextInput.parse(args);
+          const res = await client.post('/contexts', {
+            context_name: input.context_name,
+            context_key: input.context_key,
+            context_type: input.context_type,
+            description: input.description,
+            recommendation_type: input.recommendation_type,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Context created.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'update_context': {
+          const input = UpdateContextInput.parse(args);
+          const { context_id, ...body } = input;
+          const res = await client.patch(`/contexts/${context_id}`, body);
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Context ${context_id} updated.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'delete_context': {
+          const input = DeleteContextInput.parse(args);
+          await client.delete(`/contexts/${input.context_id}`);
+          return {
+            content: [{ type: 'text', text: `✅ Context ${input.context_id} deleted.` }],
+          };
+        }
+
+        // ── Pipeline management ───────────────────────────────────────
+        case 'list_pipelines': {
+          const res = await client.get<any[]>('/pipelines');
+          const text = formatList('pipeline(s)', res, (p) =>
+            `[id: ${p.id}] ${p.name} (context: ${p.context_id ?? 'none'}, active: ${p.is_active})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'create_pipeline': {
+          const input = CreatePipelineInput.parse(args);
+          const res = await client.post('/pipelines', {
+            name: input.name,
+            description: input.description,
+            context_id: input.context_id,
+            is_active: input.is_active,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Pipeline created.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'update_pipeline': {
+          const input = UpdatePipelineInput.parse(args);
+          const { pipeline_id, ...body } = input;
+          const res = await client.patch(`/pipelines/${pipeline_id}`, body);
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Pipeline ${pipeline_id} updated.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'delete_pipeline': {
+          const input = DeletePipelineInput.parse(args);
+          await client.delete(`/pipelines/${input.pipeline_id}`);
+          return {
+            content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deleted.` }],
+          };
+        }
+
+        // ── Rule management ───────────────────────────────────────────
+        case 'list_rules': {
+          const input = ListRulesInput.parse(args);
+          const query: Record<string, string | number | boolean | undefined> = {};
+          if (input.context_id !== undefined) query.context_id = input.context_id;
+          const res = await client.get<any[]>('/rules', query);
+          const text = formatList('rule(s)', res, (r) =>
+            `[id: ${r.id}] ${r.name} (type: ${r.rule_type}, active: ${r.is_active}, context: ${r.context_id ?? 'all'})`,
+          );
+          return { content: [{ type: 'text', text }] };
+        }
+
+        case 'create_rule': {
+          const input = CreateRuleInput.parse(args);
+          const res = await client.post('/rules', {
+            context_id: input.context_id,
+            name: input.name,
+            description: input.description,
+            priority: input.priority,
+            rule_type: input.rule_type,
+            conditions: input.conditions,
+            actions: input.actions,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Rule created.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'update_rule': {
+          const input = UpdateRuleInput.parse(args);
+          const { rule_id, ...body } = input;
+          const res = await client.patch(`/rules/${rule_id}`, body);
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Rule ${rule_id} updated.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
+        }
+
+        case 'delete_rule': {
+          const input = DeleteRuleInput.parse(args);
+          await client.delete(`/rules/${input.rule_id}`);
+          return {
+            content: [{ type: 'text', text: `✅ Rule ${input.rule_id} deleted.` }],
+          };
+        }
+
+        case 'toggle_rule': {
+          const input = ToggleRuleInput.parse(args);
+          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: input.is_active });
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Rule ${input.rule_id} is now ${input.is_active ? 'active' : 'inactive'}.\n${JSON.stringify(res, null, 2)}`,
+            }],
+          };
         }
 
         default:
