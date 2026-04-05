@@ -11,20 +11,26 @@ const DEFAULT_API_BASE = 'https://api.neuronsearchlab.com';
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export interface ClientConfig {
-  tokenManager: TokenManager;
+  tokenManager?: TokenManager;
+  staticToken?: string;
   apiBase?: string;
   timeoutMs?: number;
   maxRetries?: number;
 }
 
 export class NeuronClient {
-  private readonly tokenManager: TokenManager;
+  private readonly tokenManager?: TokenManager;
+  private readonly staticToken?: string;
   private readonly apiBase: string;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
 
   constructor(config: ClientConfig) {
+    if (!config.tokenManager && !config.staticToken) {
+      throw new Error('NeuronClient requires either tokenManager or staticToken.');
+    }
     this.tokenManager = config.tokenManager;
+    this.staticToken = config.staticToken;
     this.apiBase = (config.apiBase ?? DEFAULT_API_BASE).replace(/\/+$/, '');
     this.timeoutMs = config.timeoutMs ?? 15_000;
     this.maxRetries = config.maxRetries ?? 2;
@@ -48,7 +54,7 @@ export class NeuronClient {
 
     let attempt = 0;
     while (true) {
-      const token = await this.tokenManager.getToken();
+      const token = this.staticToken ?? await this.tokenManager!.getToken();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -126,6 +132,10 @@ export class NeuronClient {
 
   patch<T>(path: string, body: unknown) {
     return this.request<T>('PATCH', path, body);
+  }
+
+  put<T>(path: string, body: unknown) {
+    return this.request<T>('PUT', path, body);
   }
 
   delete<T>(path: string, body?: unknown) {

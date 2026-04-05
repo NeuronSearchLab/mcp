@@ -1,6 +1,9 @@
 # @neuronsearchlab/mcp
 
-MCP (Model Context Protocol) server for [NeuronSearchLab](https://neuronsearchlab.com). Gives any MCP-compatible AI client (Claude Desktop, Cursor, Windsurf, etc.) direct access to your recommendation engine and platform configuration — no HTTP wrangling, no token management, just natural language.
+MCP (Model Context Protocol) server for [NeuronSearchLab](https://neuronsearchlab.com). Gives any MCP-compatible AI client (Claude Desktop, Cursor, Windsurf, etc.) direct access to NeuronSearchLab in two modes:
+
+- `public`: recommendations, events, and catalogue operations via OAuth client credentials
+- `internal`: internal admin-platform operations via console API key auth
 
 ```
 "Get 5 recommendations for user alice@example.com"
@@ -26,23 +29,32 @@ MCP (Model Context Protocol) server for [NeuronSearchLab](https://neuronsearchla
 | `search_items` | Search the catalogue by keyword |
 | `explain_ranking` | Explain why an item ranked where it did for a user |
 
-### Platform management tools
+## Modes
 
-| Tool | Description |
-|------|-------------|
-| `list_contexts` | List all recommendation contexts (feeds) |
-| `create_context` | Create a new recommendation context |
-| `update_context` | Update an existing context |
-| `delete_context` | Delete a context and its associated pipelines/rules |
-| `list_pipelines` | List all ranking pipelines |
-| `create_pipeline` | Create a new ranking pipeline |
-| `update_pipeline` | Update an existing pipeline |
-| `delete_pipeline` | Delete a ranking pipeline |
-| `list_rules` | List ranking rules (optionally by context) |
-| `create_rule` | Create a ranking rule (boost, bury, pin, filter, cap, diversity) |
-| `update_rule` | Update an existing rule |
-| `delete_rule` | Delete a ranking rule |
-| `toggle_rule` | Enable or disable a rule |
+### Public mode
+
+Uses OAuth client credentials and the public API.
+
+Supported:
+- recommendations
+- events
+- catalogue operations
+
+### Internal mode
+
+Uses a NeuronSearchLab API key with the `admin` scope against the console API.
+
+Currently supported:
+- catalogue search and ranking debug: `search_items`, `explain_ranking`
+- contexts: `list_contexts`, `create_context`, `update_context`, `get_context`
+- pipelines: `list_pipelines`, `create_pipeline`, `update_pipeline`, `delete_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `clone_pipeline`, `get_pipeline`
+- rules: `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `toggle_rule`, `enable_rule`, `disable_rule`, `get_rule`
+- segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`
+- experiments: `list_experiments`, `get_experiment`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`, `get_experiment_results`
+- training: `list_training_jobs`, `get_training_job`, `create_training_job`, `cancel_training_job`
+- analytics: `get_ranking_metrics`, `get_user_analytics`, `get_item_analytics`, `compare_items`, `top_items`
+- credentials and integrations: `list_api_keys`, `create_api_key`, `revoke_api_key`, `list_integrations`
+- fallback UI coverage: `list_platform_routes`, `call_platform_api`
 
 ---
 
@@ -91,10 +103,12 @@ All configuration is via environment variables:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `NSL_CLIENT_ID` | Yes | — | OAuth client ID from the console |
-| `NSL_CLIENT_SECRET` | Yes | — | OAuth client secret from the console |
+| `NSL_PLATFORM_MODE` | No | `public` | `public` or `internal` |
+| `NSL_CLIENT_ID` | Public mode | — | OAuth client ID from the console |
+| `NSL_CLIENT_SECRET` | Public mode | — | OAuth client secret from the console |
+| `NSL_API_KEY` | Internal mode | — | API key with `admin` scope |
 | `NSL_TOKEN_URL` | No | `https://auth.neuronsearchlab.com/oauth2/token` | Token endpoint |
-| `NSL_API_BASE_URL` | No | `https://api.neuronsearchlab.com` | API base URL |
+| `NSL_API_BASE_URL` | No | `https://api.neuronsearchlab.com` in public mode, `https://console.neuronsearchlab.com` in internal mode | API base URL |
 | `NSL_TIMEOUT_MS` | No | `15000` | Request timeout in milliseconds |
 
 ---

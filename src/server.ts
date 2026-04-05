@@ -7,6 +7,8 @@ import {
 import { z } from 'zod';
 import { NeuronClient } from './client.js';
 
+export type ServerMode = 'public' | 'internal';
+
 // ─── Input schemas ────────────────────────────────────────────────────────────
 
 const GetRecommendationsInput = z.object({
@@ -358,19 +360,206 @@ const GetSegmentMetricsInput = z.object({
   window: z.enum(['1d', '7d', '30d']).default('7d').describe('Time window.'),
 });
 
+const GetUserAnalyticsInput = z.object({
+  user_id: z.string().min(1).describe('The user ID or email to inspect.'),
+  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
+});
+
+const GetItemAnalyticsInput = z.object({
+  item_id: z.string().min(1).describe('The item ID to inspect.'),
+  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
+});
+
+const CompareItemsInput = z.object({
+  item_a_id: z.string().min(1).describe('The first item ID to compare.'),
+  item_b_id: z.string().min(1).describe('The second item ID to compare.'),
+  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
+});
+
+const TopItemsInput = z.object({
+  metric: z.enum(['served', 'events']).default('served').describe('Whether to rank by served count or event count.'),
+  event_name: z.string().optional().describe('Optional event-name filter when metric=events, for example "watch" or "click".'),
+  event_id: z.number().int().optional().describe('Optional numeric event ID filter when metric=events.'),
+  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
+  limit: z.number().int().min(1).max(50).default(10).describe('Maximum items to return.'),
+});
+
 // ─── API key / integration schemas ───────────────────────────────────────────
 
 const CreateApiKeyInput = z.object({
   name: z.string().min(1).describe('API key display name.'),
   environment: z.enum(['production', 'staging', 'development']).default('production').describe('Environment for this key.'),
-  scopes: z.array(z.enum(['recommendations', 'events', 'items'])).default(['recommendations']).describe('Permissions granted to this key.'),
+  scopes: z.array(z.enum(['recommendations', 'events', 'items', 'admin'])).default(['recommendations']).describe('Permissions granted to this key.'),
 });
 
 const RevokeApiKeyInput = z.object({
   key_id: z.number().int().describe('The API key ID to revoke.'),
 });
 
+// ─── Internal platform API fallback schemas ──────────────────────────────────
+
+const ListPlatformRoutesInput = z.object({
+  section: z.enum([
+    'ranking',
+    'analytics',
+    'catalogue',
+    'events',
+    'models',
+    'training',
+    'security',
+    'team',
+    'billing',
+  ]).optional().describe('Optional area to focus the route list on.'),
+});
+
+const CallPlatformApiInput = z.object({
+  path: z.string().min(1).describe('Admin-console API path starting with /api/.'),
+  method: z.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']).default('GET').describe('HTTP method to use.'),
+  query: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional().describe('Optional query string parameters.'),
+  body: z.record(z.unknown()).optional().describe('Optional JSON body for POST/PATCH/PUT/DELETE requests.'),
+});
+
 // ─── Response formatters ──────────────────────────────────────────────────────
+
+const SAFE_PLATFORM_API_PREFIXES = [
+  '/api/analytics',
+  '/api/api-keys',
+  '/api/billing',
+  '/api/catalogue-ingest',
+  '/api/context',
+  '/api/events',
+  '/api/experiments',
+  '/api/explain',
+  '/api/integrations',
+  '/api/items',
+  '/api/models',
+  '/api/pipelines',
+  '/api/recommendations',
+  '/api/rerank-controls',
+  '/api/rules',
+  '/api/search',
+  '/api/security',
+  '/api/segments',
+  '/api/team',
+  '/api/training',
+  '/api/training-jobs',
+  '/api/users',
+  '/api/dashboard',
+] as const;
+
+const PLATFORM_ROUTE_GUIDE: Record<string, string[]> = {
+  ranking: [
+    'GET /api/context -> list recommendation contexts',
+    'POST /api/context/create -> create a context',
+    'PATCH /api/context/:id -> update a context',
+    'GET /api/pipelines -> list pipelines',
+    'POST /api/pipelines -> create a pipeline',
+    'GET/PATCH/DELETE /api/pipelines/:id -> inspect, update, or delete a pipeline',
+    'GET /api/rules -> list rules',
+    'POST /api/rules -> create a rule',
+    'GET/PATCH/DELETE /api/rules/:id -> inspect, update, or delete a rule',
+    'GET/PUT /api/rerank-controls[?contextId=123] -> inspect or save rerank controls',
+    'GET /api/explain?item_id=...&user_id=...&context_id=... -> explain ranking for an item',
+  ],
+  analytics: [
+    'GET /api/analytics?preset=7d&context=123 -> aggregate analytics totals',
+    'GET /api/analytics/items/:itemId?window=7d -> item analytics',
+    'GET /api/analytics/users/:userId?window=7d -> user analytics',
+    'GET /api/analytics/items/compare?item_a=...&item_b=... -> item-vs-item comparison',
+    'GET /api/analytics/top-items?metric=events&event_name=watch -> top items',
+    'GET /api/dashboard?period=7d -> dashboard summary cards and top items',
+  ],
+  catalogue: [
+    'GET /api/items/search?q=... -> search catalogue items',
+    'GET /api/items/:itemId -> inspect an item',
+    'GET /api/users/:userId -> inspect a user',
+    'GET /api/catalogue-ingest -> list ingest configs',
+    'POST /api/catalogue-ingest -> create an ingest config',
+    'PATCH/DELETE /api/catalogue-ingest/:id -> update or delete an ingest config',
+    'POST /api/catalogue-ingest/:id/trigger -> manually trigger ingest',
+  ],
+  events: [
+    'POST /api/events/event-types -> create an event type',
+    'PUT /api/events/event-types/:id -> update an event type',
+    'POST /api/events/save-values -> bulk save event names/weights',
+    'GET /api/events/templates -> list training templates',
+    'POST /api/events/templates -> create a training template',
+    'PUT/DELETE /api/events/templates/:id -> update or delete a training template',
+  ],
+  models: [
+    'GET /api/models -> list registered models',
+    'POST /api/models -> register a model',
+    'PATCH/DELETE /api/models/:id -> update or delete a model',
+  ],
+  training: [
+    'GET /api/training-jobs -> list recent training jobs',
+    'POST /api/training/start -> start training from a template',
+    'POST /api/training-jobs/stop -> stop a running training job',
+    'POST /api/training-jobs/approve -> approve a model package',
+    'POST /api/training-jobs/promote -> promote a model package to the endpoint',
+    'GET /api/training-jobs/logs/:jobName -> fetch recent training logs',
+    'GET /api/training-jobs/metrics/:jobName -> fetch final training metrics',
+    'GET /api/training-jobs/endpoint -> inspect the deployed endpoint',
+  ],
+  security: [
+    'GET /api/api-keys -> list API keys',
+    'POST /api/api-keys -> create an API key',
+    'DELETE /api/api-keys/:id -> revoke an API key',
+    'GET /api/security/clients -> list SDK OAuth clients',
+    'POST /api/security/create-client -> create an SDK OAuth client',
+    'PATCH /api/security/update-client -> rename or change environment on an SDK client',
+    'POST /api/security/revoke-client -> revoke an SDK client',
+    'GET /api/integrations -> list integrations',
+    'POST /api/integrations -> connect/disconnect/delete an integration',
+  ],
+  team: [
+    'GET /api/team -> list team members',
+    'POST /api/team/invite -> invite a team member by email',
+  ],
+  billing: [
+    'POST /api/billing/portal -> create a billing-portal link',
+    'POST /api/billing/change-plan -> change the team billing plan',
+  ],
+};
+
+function isSafePlatformApiPath(path: string) {
+  return SAFE_PLATFORM_API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+function formatPlatformRoutes(section?: string) {
+  const chosenSections = section ? [section] : Object.keys(PLATFORM_ROUTE_GUIDE);
+  const lines = [
+    'Internal platform API routes available through the admin MCP fallback:',
+    '',
+    'Use dedicated tools first when they exist. Use call_platform_api for UI capabilities that do not have a first-class MCP tool yet.',
+  ];
+
+  for (const key of chosenSections) {
+    const entries = PLATFORM_ROUTE_GUIDE[key];
+    if (!entries?.length) continue;
+    lines.push('', `${key}:`);
+    for (const entry of entries) {
+      lines.push(`- ${entry}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatPlatformApiResponse(method: string, path: string, res: any) {
+  const label = `${method} ${path}`;
+  if (res == null) {
+    return `✅ ${label}\n\nNo response body returned.`;
+  }
+  if (typeof res === 'string') {
+    return `✅ ${label}\n\n${res}`;
+  }
+  return `✅ ${label}\n\n${JSON.stringify(res, null, 2)}`;
+}
 
 function formatRecommendations(res: any): string {
   if (!res?.recommendations?.length) {
@@ -416,6 +605,112 @@ function formatList(label: string, items: any[], formatter: (item: any) => strin
   const lines = [`Found ${items.length} ${label}:`, ''];
   for (const item of items) lines.push(`• ${formatter(item)}`);
   return lines.join('\n');
+}
+
+function formatEventBreakdown(rows: Array<{ event_name: string; count: number }>) {
+  if (!rows.length) return '  No events recorded.';
+  return rows.map((row) => `  ${row.event_name}: ${row.count}`).join('\n');
+}
+
+function formatItemAnalytics(res: any, itemId: string) {
+  const itemLabel = res?.item?.name ? `${res.item.name} (${itemId})` : itemId;
+  const lines = [
+    `Item analytics for ${itemLabel}`,
+    `Window: ${res?.window ?? '7d'}`,
+    `Served: ${res?.served_count ?? 0}`,
+    `Total events: ${res?.total_event_count ?? 0}`,
+    `Clicks: ${res?.click_count ?? 0}`,
+    `Watch/View events: ${res?.watch_count ?? 0}`,
+    `CTR: ${((res?.click_through_rate ?? 0) * 100).toFixed(2)}%`,
+  ];
+
+  if (res?.last_served_at) lines.push(`Last served: ${res.last_served_at}`);
+  if (res?.last_event_at) lines.push(`Last event: ${res.last_event_at}`);
+
+  lines.push('', 'Event breakdown:', formatEventBreakdown(res?.event_breakdown ?? []));
+  return lines.join('\n');
+}
+
+function formatUserAnalytics(res: any, userId: string) {
+  const userLabel = res?.user?.name ? `${res.user.name} (${userId})` : userId;
+  const lines = [
+    `User analytics for ${userLabel}`,
+    `Window: ${res?.window ?? '7d'}`,
+    `Served: ${res?.served_count ?? 0}`,
+    `Total events: ${res?.total_event_count ?? 0}`,
+    `Clicks: ${res?.click_count ?? 0}`,
+    `CTR: ${((res?.click_through_rate ?? 0) * 100).toFixed(2)}%`,
+    `Unique items: ${res?.unique_items ?? 0}`,
+    `Unique sessions: ${res?.unique_sessions ?? 0}`,
+  ];
+
+  if (res?.last_served_at) lines.push(`Last served: ${res.last_served_at}`);
+  if (res?.last_event_at) lines.push(`Last event: ${res.last_event_at}`);
+
+  lines.push('', 'Event breakdown:', formatEventBreakdown(res?.event_breakdown ?? []));
+  return lines.join('\n');
+}
+
+function formatItemComparison(res: any) {
+  const itemA = res?.item_a;
+  const itemB = res?.item_b;
+  const itemALabel = itemA?.item?.name ? `${itemA.item.name} (${itemA.item?.entity_id ?? 'unknown'})` : itemA?.item?.entity_id ?? 'item_a';
+  const itemBLabel = itemB?.item?.name ? `${itemB.item.name} (${itemB.item?.entity_id ?? 'unknown'})` : itemB?.item?.entity_id ?? 'item_b';
+
+  const servedDelta = (itemA?.served_count ?? 0) - (itemB?.served_count ?? 0);
+  const clickDelta = (itemA?.click_count ?? 0) - (itemB?.click_count ?? 0);
+  const ctrDelta = ((itemA?.click_through_rate ?? 0) - (itemB?.click_through_rate ?? 0)) * 100;
+
+  return [
+    `Item comparison (${res?.window ?? '7d'})`,
+    '',
+    `${itemALabel}`,
+    `  Served: ${itemA?.served_count ?? 0}`,
+    `  Events: ${itemA?.total_event_count ?? 0}`,
+    `  Clicks: ${itemA?.click_count ?? 0}`,
+    `  CTR: ${((itemA?.click_through_rate ?? 0) * 100).toFixed(2)}%`,
+    '',
+    `${itemBLabel}`,
+    `  Served: ${itemB?.served_count ?? 0}`,
+    `  Events: ${itemB?.total_event_count ?? 0}`,
+    `  Clicks: ${itemB?.click_count ?? 0}`,
+    `  CTR: ${((itemB?.click_through_rate ?? 0) * 100).toFixed(2)}%`,
+    '',
+    `Deltas (item A - item B): served=${servedDelta}, clicks=${clickDelta}, ctr=${ctrDelta.toFixed(2)}pp`,
+  ].join('\n');
+}
+
+function formatTopItems(res: any) {
+  const items = Array.isArray(res?.items) ? res.items : [];
+  if (!items.length) {
+    return `No top items found for metric "${res?.metric ?? 'served'}".`;
+  }
+
+  const qualifier = res?.metric === 'events'
+    ? `events${res?.event_name ? ` matching "${res.event_name}"` : ''}${res?.event_id != null ? ` (event_id=${res.event_id})` : ''}`
+    : 'served count';
+
+  const lines = [`Top items by ${qualifier} (${res?.window ?? '7d'}):`, ''];
+  for (const [index, item] of items.entries()) {
+    lines.push(`${index + 1}. ${item.name ?? item.item_id} (${item.item_id}) — ${item.count}`);
+  }
+  return lines.join('\n');
+}
+
+function formatTopItemsFallback(primaryRes: any, fallbackRes: any) {
+  const primaryMetric = primaryRes?.metric ?? 'served';
+  const primaryQualifier = primaryMetric === 'events'
+    ? `events${primaryRes?.event_name ? ` matching "${primaryRes.event_name}"` : ''}${primaryRes?.event_id != null ? ` (event_id=${primaryRes.event_id})` : ''}`
+    : 'served count';
+
+  const fallbackText = formatTopItems(fallbackRes);
+  return [
+    `No top items found for ${primaryQualifier} (${primaryRes?.window ?? '7d'}).`,
+    '',
+    'Using served count instead:',
+    '',
+    fallbackText,
+  ].join('\n');
 }
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
@@ -1262,6 +1557,61 @@ const TOOLS: Tool[] = [
       required: ['segment_id'],
     },
   },
+  {
+    name: 'get_user_analytics',
+    description: 'Get served counts, event breakdown, unique-item activity, and click-through rate for a specific user over a time window.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        user_id: { type: 'string', description: 'The user ID or email to inspect.' },
+        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
+      },
+      required: ['user_id'],
+    },
+  },
+  {
+    name: 'get_item_analytics',
+    description: 'Get served counts, event breakdown, watch/click counts, and click-through rate for a specific item over a time window.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_id: { type: 'string', description: 'The item ID to inspect.' },
+        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
+      },
+      required: ['item_id'],
+    },
+  },
+  {
+    name: 'compare_items',
+    description: 'Compare two items head-to-head by served count, events, clicks, and click-through rate over the same time window.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_a_id: { type: 'string', description: 'The first item ID to compare.' },
+        item_b_id: { type: 'string', description: 'The second item ID to compare.' },
+        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
+      },
+      required: ['item_a_id', 'item_b_id'],
+    },
+  },
+  {
+    name: 'top_items',
+    description: 'List the top items by served count or by matching event activity such as watch or click over a time window. For generic "top item" or "best performing item" questions, prefer metric="served" unless the user explicitly names an event type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        metric: { type: 'string', enum: ['served', 'events'], description: 'Rank by served count or by event count. Default: served. Use "events" when the user explicitly asks about a specific engagement signal such as watch, click, or view.' },
+        event_name: { type: 'string', description: 'Optional event-name filter when metric=events, for example "watch".' },
+        event_id: { type: 'number', description: 'Optional numeric event ID filter when metric=events.' },
+        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
+        limit: { type: 'number', description: 'Maximum number of items to return (1-50). Default: 10.' },
+      },
+    },
+  },
 
   // ── API Key & Integration tools ────────────────────────────────────
   {
@@ -1279,7 +1629,7 @@ const TOOLS: Tool[] = [
         environment: { type: 'string', enum: ['production', 'staging', 'development'], description: 'Environment for this key. Default: production.' },
         scopes: {
           type: 'array',
-          items: { type: 'string', enum: ['recommendations', 'events', 'items'] },
+          items: { type: 'string', enum: ['recommendations', 'events', 'items', 'admin'] },
           description: 'Permissions granted to this key. Default: ["recommendations"].',
         },
       },
@@ -1302,22 +1652,191 @@ const TOOLS: Tool[] = [
     description: 'List configured third-party integrations (webhooks, data connectors, export targets, etc.).',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'list_platform_routes',
+    description:
+      'List the internal admin-console API routes that the standalone MCP can reach in internal mode. ' +
+      'Use this when the user asks for a UI capability that does not have a dedicated MCP tool yet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        section: {
+          type: 'string',
+          enum: ['ranking', 'analytics', 'catalogue', 'events', 'models', 'training', 'security', 'team', 'billing'],
+          description: 'Optional area to focus the route list on.',
+        },
+      },
+    },
+  },
+  {
+    name: 'call_platform_api',
+    description:
+      'Fallback tool for internal mode only. Calls safe admin-console /api routes directly when no dedicated MCP tool exists. ' +
+      'Prefer dedicated tools first, and use list_platform_routes when unsure which route to call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Admin-console API path starting with /api/.' },
+        method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], description: 'HTTP method.' },
+        query: { type: 'object', additionalProperties: true, description: 'Optional query string parameters.' },
+        body: { type: 'object', additionalProperties: true, description: 'Optional JSON body.' },
+      },
+      required: ['path'],
+    },
+  },
 ];
+
+const ADMIN_TOOL_NAMES = new Set([
+  'list_contexts',
+  'create_context',
+  'update_context',
+  'delete_context',
+  'list_pipelines',
+  'create_pipeline',
+  'update_pipeline',
+  'delete_pipeline',
+  'list_rules',
+  'create_rule',
+  'update_rule',
+  'delete_rule',
+  'toggle_rule',
+  'get_context',
+  'get_pipeline',
+  'activate_pipeline',
+  'deactivate_pipeline',
+  'clone_pipeline',
+  'get_rule',
+  'enable_rule',
+  'disable_rule',
+  'reorder_rules',
+  'list_segments',
+  'get_segment',
+  'create_segment',
+  'update_segment',
+  'delete_segment',
+  'get_segment_stats',
+  'list_experiments',
+  'get_experiment',
+  'create_experiment',
+  'update_experiment',
+  'start_experiment',
+  'stop_experiment',
+  'get_experiment_results',
+  'list_campaigns',
+  'get_campaign',
+  'create_campaign',
+  'update_campaign',
+  'delete_campaign',
+  'activate_campaign',
+  'pause_campaign',
+  'list_training_jobs',
+  'get_training_job',
+  'create_training_job',
+  'cancel_training_job',
+  'get_ranking_metrics',
+  'get_experiment_metrics',
+  'get_segment_metrics',
+  'get_user_analytics',
+  'get_item_analytics',
+  'compare_items',
+  'top_items',
+  'list_api_keys',
+  'create_api_key',
+  'revoke_api_key',
+  'list_integrations',
+  'list_platform_routes',
+  'call_platform_api',
+]);
+
+function getExportedTools(mode: ServerMode) {
+  if (mode === 'internal') {
+    return TOOLS.filter((tool) => [
+      'search_items',
+      'explain_ranking',
+      'list_contexts',
+      'create_context',
+      'update_context',
+      'get_context',
+      'list_pipelines',
+      'create_pipeline',
+      'update_pipeline',
+      'delete_pipeline',
+      'activate_pipeline',
+      'deactivate_pipeline',
+      'clone_pipeline',
+      'get_pipeline',
+      'list_rules',
+      'create_rule',
+      'update_rule',
+      'delete_rule',
+      'toggle_rule',
+      'enable_rule',
+      'disable_rule',
+      'get_rule',
+      'get_ranking_metrics',
+      'list_segments',
+      'get_segment',
+      'create_segment',
+      'update_segment',
+      'delete_segment',
+      'list_experiments',
+      'get_experiment',
+      'create_experiment',
+      'update_experiment',
+      'start_experiment',
+      'stop_experiment',
+      'get_experiment_results',
+      'list_training_jobs',
+      'get_training_job',
+      'create_training_job',
+      'cancel_training_job',
+      'get_user_analytics',
+      'get_item_analytics',
+      'compare_items',
+      'top_items',
+      'list_api_keys',
+      'create_api_key',
+      'revoke_api_key',
+      'list_integrations',
+      'list_platform_routes',
+      'call_platform_api',
+    ].includes(tool.name));
+  }
+
+  return TOOLS.filter((tool) => !ADMIN_TOOL_NAMES.has(tool.name));
+}
+
+function unsupportedAdminToolResponse(toolName: string, mode: ServerMode) {
+  return {
+    content: [{
+      type: 'text' as const,
+      text:
+        mode === 'public'
+          ? `Admin tool \`${toolName}\` is not available in public mode.\n\nThe public OAuth API currently supports recommendations, events, and catalogue operations only.`
+          : `Tool \`${toolName}\` is not implemented in internal mode yet.`,
+    }],
+    isError: true,
+  };
+}
 
 // ─── Server factory ───────────────────────────────────────────────────────────
 
-export function createServer(client: NeuronClient): Server {
+export function createServer(client: NeuronClient, mode: ServerMode = 'public'): Server {
   const server = new Server(
     { name: 'neuronsearchlab', version: '0.3.0' },
     { capabilities: { tools: {} } },
   );
 
   // List tools
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getExportedTools(mode) }));
 
   // Call tool
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
+
+    if (mode === 'public' && ADMIN_TOOL_NAMES.has(name)) {
+      return unsupportedAdminToolResponse(name, mode);
+    }
 
     try {
       switch (name) {
@@ -1413,10 +1932,15 @@ export function createServer(client: NeuronClient): Server {
 
         case 'search_items': {
           const input = SearchItemsInput.parse(args);
-          const res = await client.get('/items/search', {
-            q: input.query,
-            limit: input.limit ?? 20,
-          }) as any;
+          const res = mode === 'internal'
+            ? await client.get('/api/items/search', {
+                q: input.query,
+                limit: input.limit ?? 20,
+              }) as any
+            : await client.get('/items/search', {
+                q: input.query,
+                limit: input.limit ?? 20,
+              }) as any;
 
           if (!res?.items?.length) {
             return { content: [{ type: 'text', text: `No items found matching "${input.query}".` }] };
@@ -1438,11 +1962,17 @@ export function createServer(client: NeuronClient): Server {
 
         case 'explain_ranking': {
           const input = ExplainRankingInput.parse(args);
-          const res = await client.post('/explain', {
-            itemId: input.item_id,
-            userId: input.user_id,
-            contextId: input.context_id,
-          }) as any;
+          const res = mode === 'internal'
+            ? await client.get('/api/explain', {
+                item_id: input.item_id,
+                user_id: input.user_id,
+                context_id: input.context_id,
+              }) as any
+            : await client.post('/explain', {
+                itemId: input.item_id,
+                userId: input.user_id,
+                contextId: input.context_id,
+              }) as any;
 
           if (res?.error) {
             return {
@@ -1451,32 +1981,40 @@ export function createServer(client: NeuronClient): Server {
             };
           }
 
+          const explanation = mode === 'internal' ? res?.explanation : res;
           const lines: string[] = [
             `📊 Ranking explanation for item: ${input.item_id}`,
             `   User: ${input.user_id ?? 'neutral baseline'}`,
             '',
-            `Final score: ${res.finalScore ?? res.score ?? 'n/a'}`,
+            `Final score: ${explanation?.final_score ?? explanation?.finalScore ?? explanation?.score ?? 'n/a'}`,
             '',
             '─── Score breakdown ───',
           ];
 
-          if (res.breakdown) {
-            for (const [component, value] of Object.entries(res.breakdown)) {
+          const breakdown = explanation?.breakdown ?? explanation?.feature_contributions;
+          if (Array.isArray(breakdown)) {
+            for (const contribution of breakdown) {
+              lines.push(`  ${contribution.feature ?? 'feature'}: ${contribution.contribution ?? contribution.value ?? 'n/a'}`);
+            }
+          } else if (breakdown) {
+            for (const [component, value] of Object.entries(breakdown)) {
               lines.push(`  ${component}: ${value}`);
             }
           }
 
-          if (res.appliedRules?.length) {
+          const appliedRules = explanation?.applied_rules ?? explanation?.appliedRules;
+          if (appliedRules?.length) {
             lines.push('', '─── Applied rules ───');
-            for (const rule of res.appliedRules) {
+            for (const rule of appliedRules) {
               const matched = rule.matched ? '✅ matched' : '⬜ no match';
               lines.push(`  ${rule.name} (${rule.type}) — ${matched}`);
             }
           }
 
-          if (res.pipelineTrace?.length) {
+          const pipelineTrace = explanation?.pipeline_stages ?? explanation?.pipelineTrace;
+          if (pipelineTrace?.length) {
             lines.push('', '─── Pipeline trace ───');
-            for (const stage of res.pipelineTrace) {
+            for (const stage of pipelineTrace) {
               const icon = stage.status === 'passed' ? '✅' : stage.status === 'partial' ? '⚠️' : '❌';
               lines.push(`  ${icon} ${stage.stage}: ${stage.status}`);
               if (stage.note) lines.push(`     ${stage.note}`);
@@ -1488,21 +2026,24 @@ export function createServer(client: NeuronClient): Server {
 
         // ── Context management ────────────────────────────────────────
         case 'list_contexts': {
-          const res = await client.get<any[]>('/contexts');
-          const text = formatList('context(s)', res, (c) =>
-            `[id: ${c.id}] ${c.context_name ?? c.name} (type: ${c.context_type ?? 'n/a'}, key: ${c.context_key ?? 'n/a'})`,
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/context');
+          const contexts = Array.isArray(res?.contexts) ? res.contexts : [];
+          const text = formatList('context(s)', contexts, (c) =>
+            `[id: ${c.id}] ${c.name ?? c.context_name ?? 'Unnamed'}`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'create_context': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateContextInput.parse(args);
-          const res = await client.post('/contexts', {
-            context_name: input.context_name,
-            context_key: input.context_key,
-            context_type: input.context_type,
+          const res = await client.post('/api/context/create', {
+            contextName: input.context_name,
+            contextKey: input.context_key,
+            contextType: input.context_type,
             description: input.description,
-            recommendation_type: input.recommendation_type,
+            jsonData: { recommendation_type: input.recommendation_type },
           });
           return {
             content: [{
@@ -1513,37 +2054,61 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'update_context': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = UpdateContextInput.parse(args);
-          const { context_id, ...body } = input;
-          const res = await client.patch(`/contexts/${context_id}`, body);
+          const listRes = await client.get<any>('/api/context');
+          const contexts = Array.isArray(listRes?.contexts) ? listRes.contexts : [];
+          const existing = contexts.find((entry: any) => Number(entry.id) === input.context_id);
+          if (!existing) {
+            return { content: [{ type: 'text', text: `❌ Context ${input.context_id} not found.` }], isError: true };
+          }
+          const res = await client.patch(`/api/context/${input.context_id}`, {
+            contextName: input.context_name ?? existing.name ?? existing.context_name,
+            contextType: input.context_type ?? existing.context_type,
+            description: input.description ?? existing.description ?? '',
+            jsonData: input.recommendation_type
+              ? { recommendation_type: input.recommendation_type }
+              : undefined,
+          });
           return {
             content: [{
               type: 'text',
-              text: `✅ Context ${context_id} updated.\n${JSON.stringify(res, null, 2)}`,
+              text: `✅ Context ${input.context_id} updated.\n${JSON.stringify(res, null, 2)}`,
             }],
           };
         }
 
         case 'delete_context': {
-          const input = DeleteContextInput.parse(args);
-          await client.delete(`/contexts/${input.context_id}`);
-          return {
-            content: [{ type: 'text', text: `✅ Context ${input.context_id} deleted.` }],
-          };
+          return unsupportedAdminToolResponse(name, mode);
+        }
+
+        case 'get_context': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = GetContextInput.parse(args);
+          const res = await client.get<any>('/api/context');
+          const contexts = Array.isArray(res?.contexts) ? res.contexts : [];
+          const context = contexts.find((entry: any) => Number(entry.id) === input.context_id);
+          if (!context) {
+            return { content: [{ type: 'text', text: `❌ Context ${input.context_id} not found.` }], isError: true };
+          }
+          return { content: [{ type: 'text', text: `Context ${input.context_id}:\n${JSON.stringify(context, null, 2)}` }] };
         }
 
         // ── Pipeline management ───────────────────────────────────────
         case 'list_pipelines': {
-          const res = await client.get<any[]>('/pipelines');
-          const text = formatList('pipeline(s)', res, (p) =>
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/pipelines');
+          const pipelines = Array.isArray(res?.pipelines) ? res.pipelines : [];
+          const text = formatList('pipeline(s)', pipelines, (p) =>
             `[id: ${p.id}] ${p.name} (context: ${p.context_id ?? 'none'}, active: ${p.is_active})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'create_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreatePipelineInput.parse(args);
-          const res = await client.post('/pipelines', {
+          const res = await client.post('/api/pipelines', {
             name: input.name,
             description: input.description,
             context_id: input.context_id,
@@ -1558,9 +2123,10 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'update_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = UpdatePipelineInput.parse(args);
           const { pipeline_id, ...body } = input;
-          const res = await client.patch(`/pipelines/${pipeline_id}`, body);
+          const res = await client.patch(`/api/pipelines/${pipeline_id}`, body);
           return {
             content: [{
               type: 'text',
@@ -1570,28 +2136,71 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'delete_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeletePipelineInput.parse(args);
-          await client.delete(`/pipelines/${input.pipeline_id}`);
+          await client.delete(`/api/pipelines/${input.pipeline_id}`);
           return {
             content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deleted.` }],
           };
         }
 
+        case 'get_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = GetPipelineInput.parse(args);
+          const res = await client.get<any>(`/api/pipelines/${input.pipeline_id}`);
+          return { content: [{ type: 'text', text: `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'activate_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = ActivatePipelineInput.parse(args);
+          const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: true });
+          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'deactivate_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = DeactivatePipelineInput.parse(args);
+          const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: false });
+          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
+        case 'clone_pipeline': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = ClonePipelineInput.parse(args);
+          const source = await client.get<any>(`/api/pipelines/${input.pipeline_id}`);
+          const pipeline = source?.pipeline;
+          if (!pipeline) {
+            return { content: [{ type: 'text', text: `❌ Pipeline ${input.pipeline_id} not found.` }], isError: true };
+          }
+          const res = await client.post('/api/pipelines', {
+            name: input.name,
+            description: pipeline.description,
+            context_id: pipeline.context_id,
+            is_active: pipeline.is_active,
+            stages: pipeline.stages,
+          });
+          return { content: [{ type: 'text', text: `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}` }] };
+        }
+
         // ── Rule management ───────────────────────────────────────────
         case 'list_rules': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = ListRulesInput.parse(args);
           const query: Record<string, string | number | boolean | undefined> = {};
-          if (input.context_id !== undefined) query.context_id = input.context_id;
-          const res = await client.get<any[]>('/rules', query);
-          const text = formatList('rule(s)', res, (r) =>
+          if (input.context_id !== undefined) query.contextId = input.context_id;
+          const res = await client.get<any>('/api/rules', query);
+          const rules = Array.isArray(res?.rules) ? res.rules : [];
+          const text = formatList('rule(s)', rules, (r) =>
             `[id: ${r.id}] ${r.name} (type: ${r.rule_type}, active: ${r.is_active}, context: ${r.context_id ?? 'all'})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'create_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateRuleInput.parse(args);
-          const res = await client.post('/rules', {
+          const res = await client.post('/api/rules', {
             context_id: input.context_id,
             name: input.name,
             description: input.description,
@@ -1609,9 +2218,10 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'update_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = UpdateRuleInput.parse(args);
           const { rule_id, ...body } = input;
-          const res = await client.patch(`/rules/${rule_id}`, body);
+          const res = await client.patch(`/api/rules/${rule_id}`, body);
           return {
             content: [{
               type: 'text',
@@ -1621,16 +2231,18 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'delete_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeleteRuleInput.parse(args);
-          await client.delete(`/rules/${input.rule_id}`);
+          await client.delete(`/api/rules/${input.rule_id}`);
           return {
             content: [{ type: 'text', text: `✅ Rule ${input.rule_id} deleted.` }],
           };
         }
 
         case 'toggle_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = ToggleRuleInput.parse(args);
-          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: input.is_active });
+          const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: input.is_active });
           return {
             content: [{
               type: 'text',
@@ -1639,84 +2251,53 @@ export function createServer(client: NeuronClient): Server {
           };
         }
 
-        // ── Additional context ops ────────────────────────────────────
-        case 'get_context': {
-          const input = GetContextInput.parse(args);
-          const res = await client.get<any>(`/contexts/${input.context_id}`);
-          return { content: [{ type: 'text', text: `Context ${input.context_id}:\n${JSON.stringify(res, null, 2)}` }] };
-        }
-
-        // ── Additional pipeline ops ───────────────────────────────────
-        case 'get_pipeline': {
-          const input = GetPipelineInput.parse(args);
-          const res = await client.get<any>(`/pipelines/${input.pipeline_id}`);
-          return { content: [{ type: 'text', text: `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}` }] };
-        }
-
-        case 'activate_pipeline': {
-          const input = ActivatePipelineInput.parse(args);
-          const res = await client.patch(`/pipelines/${input.pipeline_id}`, { is_active: true });
-          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
-        }
-
-        case 'deactivate_pipeline': {
-          const input = DeactivatePipelineInput.parse(args);
-          const res = await client.patch(`/pipelines/${input.pipeline_id}`, { is_active: false });
-          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}` }] };
-        }
-
-        case 'clone_pipeline': {
-          const input = ClonePipelineInput.parse(args);
-          const res = await client.post(`/pipelines/${input.pipeline_id}/clone`, { name: input.name });
-          return { content: [{ type: 'text', text: `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}` }] };
-        }
-
-        // ── Additional rule ops ───────────────────────────────────────
         case 'get_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetRuleInput.parse(args);
-          const res = await client.get<any>(`/rules/${input.rule_id}`);
+          const res = await client.get<any>(`/api/rules/${input.rule_id}`);
           return { content: [{ type: 'text', text: `Rule ${input.rule_id}:\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'enable_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = EnableRuleInput.parse(args);
-          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: true });
+          const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: true });
           return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} enabled.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'disable_rule': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DisableRuleInput.parse(args);
-          const res = await client.patch(`/rules/${input.rule_id}`, { is_active: false });
+          const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: false });
           return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} disabled.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'reorder_rules': {
-          const input = ReorderRulesInput.parse(args);
-          const res = await client.post('/rules/reorder', {
-            rule_ids: input.rule_ids,
-            ...(input.context_id !== undefined && { context_id: input.context_id }),
-          });
-          return { content: [{ type: 'text', text: `✅ Rules reordered.\n${JSON.stringify(res, null, 2)}` }] };
+          return unsupportedAdminToolResponse(name, mode);
         }
 
         // ── Segment management ────────────────────────────────────────
         case 'list_segments': {
-          const res = await client.get<any[]>('/segments');
-          const text = formatList('segment(s)', res ?? [], (s) =>
-            `[id: ${s.id}] ${s.name} (active: ${s.is_active}, size: ~${s.estimated_size ?? '?'} users)`,
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/segments');
+          const segments = Array.isArray(res?.segments) ? res.segments : [];
+          const text = formatList('segment(s)', segments, (s) =>
+            `[id: ${s.id}] ${s.name} (active: ${s.is_active})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'get_segment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetSegmentInput.parse(args);
-          const res = await client.get<any>(`/segments/${input.segment_id}`);
-          return { content: [{ type: 'text', text: `Segment ${input.segment_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          const res = await client.get<any>(`/api/segments/${input.segment_id}`);
+          return { content: [{ type: 'text', text: `Segment ${input.segment_id}:\n${JSON.stringify(res?.segment ?? res, null, 2)}` }] };
         }
 
         case 'create_segment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateSegmentInput.parse(args);
-          const res = await client.post('/segments', {
+          const res = await client.post('/api/segments', {
             name: input.name,
             description: input.description,
             conditions: input.conditions,
@@ -1726,52 +2307,51 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'update_segment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = UpdateSegmentInput.parse(args);
           const { segment_id, ...body } = input;
-          const res = await client.patch(`/segments/${segment_id}`, body);
+          const res = await client.patch(`/api/segments/${segment_id}`, body);
           return { content: [{ type: 'text', text: `✅ Segment ${segment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'delete_segment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeleteSegmentInput.parse(args);
-          await client.delete(`/segments/${input.segment_id}`);
+          await client.delete(`/api/segments/${input.segment_id}`);
           return { content: [{ type: 'text', text: `✅ Segment ${input.segment_id} deleted.` }] };
         }
 
         case 'get_segment_stats': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetSegmentStatsInput.parse(args);
-          const res = await client.get<any>(`/segments/${input.segment_id}/stats`);
-          if (!res) return { content: [{ type: 'text', text: 'No stats available for this segment yet.' }] };
-          const lines = [
-            `Segment ${input.segment_id} stats:`,
-            `  estimated_size: ${res.estimated_size ?? 'unknown'} users`,
-            `  pct_of_total: ${res.pct_of_total != null ? `${(res.pct_of_total * 100).toFixed(1)}%` : 'unknown'}`,
-          ];
-          if (res.overlaps?.length) {
-            lines.push('', 'Overlaps with other segments:');
-            for (const o of res.overlaps) lines.push(`  - ${o.name}: ${(o.overlap_pct * 100).toFixed(1)}%`);
-          }
-          return { content: [{ type: 'text', text: lines.join('\n') }] };
+          return {
+            content: [{ type: 'text', text: `Tool get_segment_stats is not available in internal mode yet for segment ${input.segment_id}. Use call_platform_api once a dedicated stats endpoint exists.` }],
+            isError: true,
+          };
         }
 
         // ── Experiment (A/B test) management ─────────────────────────
         case 'list_experiments': {
-          const res = await client.get<any[]>('/experiments');
-          const text = formatList('experiment(s)', res ?? [], (e) =>
-            `[id: ${e.id}] ${e.name} (status: ${e.status}, variants: ${e.variants?.length ?? '?'})`,
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/experiments');
+          const experiments = Array.isArray(res?.experiments) ? res.experiments : [];
+          const text = formatList('experiment(s)', experiments, (e) =>
+            `[id: ${e.id}] ${e.name} (status: ${e.status})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'get_experiment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetExperimentInput.parse(args);
-          const res = await client.get<any>(`/experiments/${input.experiment_id}`);
-          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          const res = await client.get<any>(`/api/experiments/${input.experiment_id}`);
+          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id}:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
         }
 
         case 'create_experiment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateExperimentInput.parse(args);
-          const res = await client.post('/experiments', {
+          const res = await client.post('/api/experiments', {
             name: input.name,
             description: input.description,
             variants: input.variants,
@@ -1780,41 +2360,33 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'update_experiment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = UpdateExperimentInput.parse(args);
           const { experiment_id, ...body } = input;
-          const res = await client.patch(`/experiments/${experiment_id}`, body);
+          const res = await client.patch(`/api/experiments/${experiment_id}`, body);
           return { content: [{ type: 'text', text: `✅ Experiment ${experiment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'start_experiment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = StartExperimentInput.parse(args);
-          const res = await client.post(`/experiments/${input.experiment_id}/start`, {});
+          const res = await client.patch(`/api/experiments/${input.experiment_id}`, { status: 'running' });
           return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} started. Traffic is now splitting between variants.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'stop_experiment': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = StopExperimentInput.parse(args);
-          const res = await client.post(`/experiments/${input.experiment_id}/stop`, {});
+          const res = await client.patch(`/api/experiments/${input.experiment_id}`, { status: 'completed' });
           return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} stopped. Use get_experiment_results to view final results.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'get_experiment_results': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetExperimentResultsInput.parse(args);
-          const res = await client.get<any>(`/experiments/${input.experiment_id}/results`);
-          if (!res) return { content: [{ type: 'text', text: 'No results available yet — experiment may still be running or has no data.' }] };
-          const lines = [`Experiment ${input.experiment_id} results:`, ''];
-          if (res.variants) {
-            for (const v of res.variants) {
-              lines.push(`Variant: ${v.name} (id: ${v.id})`);
-              if (v.ctr != null) lines.push(`  CTR: ${(v.ctr * 100).toFixed(2)}%`);
-              if (v.conversion_rate != null) lines.push(`  Conversion: ${(v.conversion_rate * 100).toFixed(2)}%`);
-              if (v.revenue_per_session != null) lines.push(`  Revenue/session: $${v.revenue_per_session.toFixed(2)}`);
-              if (v.sample_size != null) lines.push(`  Sample size: ${v.sample_size}`);
-              lines.push('');
-            }
-          }
-          if (res.winner) lines.push(`🏆 Recommended winner: ${res.winner}`);
-          return { content: [{ type: 'text', text: lines.join('\n') }] };
+          await client.post(`/api/experiments/${input.experiment_id}/metrics`, {});
+          const res = await client.get<any>(`/api/experiments/${input.experiment_id}`);
+          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} results:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
         }
 
         // ── Campaign management ───────────────────────────────────────
@@ -1872,43 +2444,99 @@ export function createServer(client: NeuronClient): Server {
 
         // ── Training jobs ─────────────────────────────────────────────
         case 'list_training_jobs': {
-          const res = await client.get<any[]>('/training-jobs');
-          const text = formatList('training job(s)', res ?? [], (j) =>
-            `[id: ${j.id ?? j.job_id}] status: ${j.status} (${j.created_at ?? 'unknown date'})`,
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/training-jobs');
+          const jobs = Array.isArray(res?.jobs) ? res.jobs : [];
+          const text = formatList('training job(s)', jobs, (j) =>
+            `[id: ${j.id}] status: ${j.status ?? j.sageMaker?.pipelineExecutionStatus ?? 'unknown'} (${j.created_at ?? 'unknown date'})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'get_training_job': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetTrainingJobInput.parse(args);
-          const res = await client.get<any>(`/training-jobs/${encodeURIComponent(input.job_id)}`);
-          return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          const res = await client.get<any>('/api/training-jobs');
+          const jobs = Array.isArray(res?.jobs) ? res.jobs : [];
+          const job = jobs.find((entry: any) =>
+            String(entry.id) === input.job_id
+            || String(entry.execution_arn ?? '') === input.job_id
+            || String(entry.sageMaker?.trainingJobArn ?? '') === input.job_id
+            || String(entry.sageMaker?.trainingJobName ?? '') === input.job_id
+          );
+          if (!job) {
+            return { content: [{ type: 'text', text: `❌ Training job ${input.job_id} not found.` }], isError: true };
+          }
+          return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${JSON.stringify(job, null, 2)}` }] };
         }
 
         case 'create_training_job': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateTrainingJobInput.parse(args);
-          const res = await client.post('/training-jobs', {
-            model_type: input.model_type,
-            config: input.config ?? {},
+          const templateId = (input.config as any)?.templateId ?? (input.config as any)?.template_id;
+          if (!templateId) {
+            return {
+              content: [{ type: 'text', text: '❌ create_training_job requires config.templateId when using the internal platform MCP.' }],
+              isError: true,
+            };
+          }
+          const res = await client.post('/api/training/start', {
+            templateId,
+            trainingOptions: (input.config as any)?.trainingOptions ?? (input.config as any)?.training_options ?? {},
           });
           return { content: [{ type: 'text', text: `✅ Training job started.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         case 'cancel_training_job': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CancelTrainingJobInput.parse(args);
-          const res = await client.post(`/training-jobs/${encodeURIComponent(input.job_id)}/cancel`, {});
+          const listRes = await client.get<any>('/api/training-jobs');
+          const jobs = Array.isArray(listRes?.jobs) ? listRes.jobs : [];
+          const job = jobs.find((entry: any) =>
+            String(entry.id) === input.job_id
+            || String(entry.execution_arn ?? '') === input.job_id
+            || String(entry.sageMaker?.trainingJobArn ?? '') === input.job_id
+            || String(entry.sageMaker?.trainingJobName ?? '') === input.job_id
+          );
+          if (!job?.execution_arn) {
+            return { content: [{ type: 'text', text: `❌ Training job ${input.job_id} not found or has no execution ARN.` }], isError: true };
+          }
+          const res = await client.post('/api/training-jobs/stop', {
+            executionArn: job.execution_arn,
+            trainingJobArn: job.sageMaker?.trainingJobArn ?? undefined,
+          });
           return { content: [{ type: 'text', text: `✅ Training job ${input.job_id} cancelled.\n${JSON.stringify(res, null, 2)}` }] };
         }
 
         // ── Analytics / Metrics ───────────────────────────────────────
         case 'get_ranking_metrics': {
           const input = GetRankingMetricsInput.parse(args);
-          const res = await client.get<any>('/analytics/ranking', {
-            pipeline_id: input.pipeline_id,
-            context_id: input.context_id,
-            window: input.window,
-          });
-          if (!res) return { content: [{ type: 'text', text: 'No metrics data available for the selected window.' }] };
+          const res = mode === 'internal'
+            ? await client.get<any>('/api/analytics', {
+                preset: input.window === '1d' ? '24h' : input.window,
+                context: input.context_id,
+              })
+            : await client.get<any>('/analytics/ranking', {
+                pipeline_id: input.pipeline_id,
+                context_id: input.context_id,
+                window: input.window,
+              });
+
+          if (!res) {
+            return { content: [{ type: 'text', text: 'No metrics data available for the selected window.' }] };
+          }
+
+          if (mode === 'internal') {
+            const lines = [
+              `Ranking metrics (${res.preset ?? input.window}):`,
+              `  Served: ${res?.totals?.served ?? 0}`,
+              `  Events: ${Object.entries(res?.totals ?? {})
+                .filter(([key]) => key !== 'served')
+                .reduce((sum, [, value]) => sum + Number(value ?? 0), 0)}`,
+            ];
+            return { content: [{ type: 'text', text: lines.join('\n') }] };
+          }
+
           const lines = [`Ranking metrics (${input.window}):`, ''];
           if (res.ctr != null) lines.push(`  Overall CTR: ${(res.ctr * 100).toFixed(2)}%`);
           if (res.conversion_rate != null) lines.push(`  Conversion rate: ${(res.conversion_rate * 100).toFixed(2)}%`);
@@ -1936,18 +2564,77 @@ export function createServer(client: NeuronClient): Server {
           return { content: [{ type: 'text', text: `Segment ${input.segment_id} metrics (${input.window}):\n${JSON.stringify(res, null, 2)}` }] };
         }
 
+        case 'get_user_analytics': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = GetUserAnalyticsInput.parse(args);
+          const res = await client.get<any>(`/api/analytics/users/${encodeURIComponent(input.user_id)}`, {
+            window: input.window,
+            context_id: input.context_id,
+          });
+          return { content: [{ type: 'text', text: formatUserAnalytics(res, input.user_id) }] };
+        }
+
+        case 'get_item_analytics': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = GetItemAnalyticsInput.parse(args);
+          const res = await client.get<any>(`/api/analytics/items/${encodeURIComponent(input.item_id)}`, {
+            window: input.window,
+            context_id: input.context_id,
+          });
+          return { content: [{ type: 'text', text: formatItemAnalytics(res, input.item_id) }] };
+        }
+
+        case 'compare_items': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = CompareItemsInput.parse(args);
+          const res = await client.get<any>('/api/analytics/items/compare', {
+            item_a: input.item_a_id,
+            item_b: input.item_b_id,
+            window: input.window,
+            context_id: input.context_id,
+          });
+          return { content: [{ type: 'text', text: formatItemComparison(res) }] };
+        }
+
+        case 'top_items': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = TopItemsInput.parse(args);
+          const res = await client.get<any>('/api/analytics/top-items', {
+            metric: input.metric,
+            event_name: input.event_name,
+            event_id: input.event_id,
+            window: input.window,
+            context_id: input.context_id,
+            limit: input.limit,
+          });
+          const hasPrimaryItems = Array.isArray(res?.items) && res.items.length > 0;
+          if (!hasPrimaryItems && input.metric === 'events' && !input.event_name && input.event_id == null) {
+            const fallbackRes = await client.get<any>('/api/analytics/top-items', {
+              metric: 'served',
+              window: input.window,
+              context_id: input.context_id,
+              limit: input.limit,
+            });
+            return { content: [{ type: 'text', text: formatTopItemsFallback(res, fallbackRes) }] };
+          }
+          return { content: [{ type: 'text', text: formatTopItems(res) }] };
+        }
+
         // ── API Keys & Integrations ───────────────────────────────────
         case 'list_api_keys': {
-          const res = await client.get<any[]>('/api-keys');
-          const text = formatList('API key(s)', res ?? [], (k) =>
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/api-keys');
+          const keys = Array.isArray(res?.keys) ? res.keys : [];
+          const text = formatList('API key(s)', keys, (k) =>
             `[id: ${k.id}] ${k.name} (${k.environment}, scopes: ${(k.scopes ?? []).join(', ')}, revoked: ${k.revoked})`,
           );
           return { content: [{ type: 'text', text }] };
         }
 
         case 'create_api_key': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = CreateApiKeyInput.parse(args);
-          const res = await client.post<any>('/api-keys', {
+          const res = await client.post<any>('/api/api-keys', {
             name: input.name,
             environment: input.environment,
             scopes: input.scopes,
@@ -1962,17 +2649,74 @@ export function createServer(client: NeuronClient): Server {
         }
 
         case 'revoke_api_key': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = RevokeApiKeyInput.parse(args);
-          await client.delete(`/api-keys/${input.key_id}`);
+          await client.delete(`/api/api-keys/${input.key_id}`);
           return { content: [{ type: 'text', text: `✅ API key ${input.key_id} revoked. It will no longer authenticate.` }] };
         }
 
         case 'list_integrations': {
-          const res = await client.get<any[]>('/integrations');
-          const text = formatList('integration(s)', res ?? [], (i) =>
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/integrations');
+          const integrations = Array.isArray(res?.integrations) ? res.integrations : [];
+          const text = formatList('integration(s)', integrations, (i) =>
             `[id: ${i.id}] ${i.name} (type: ${i.type ?? 'n/a'}, status: ${i.status ?? 'unknown'})`,
           );
           return { content: [{ type: 'text', text }] };
+        }
+
+        case 'list_platform_routes': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = ListPlatformRoutesInput.parse(args);
+          return { content: [{ type: 'text', text: formatPlatformRoutes(input.section) }] };
+        }
+
+        case 'call_platform_api': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const input = CallPlatformApiInput.parse(args);
+          if (!input.path.startsWith('/api/') || !isSafePlatformApiPath(input.path)) {
+            return {
+              content: [{ type: 'text', text: `❌ Refusing to call unsafe path "${input.path}". Use /api/... routes returned by list_platform_routes.` }],
+              isError: true,
+            };
+          }
+
+          const query: Record<string, string | number | boolean | undefined> | undefined = input.query
+            ? Object.fromEntries(
+                Object.entries(input.query).map(([key, value]) => [
+                  key,
+                  value === null ? undefined : value,
+                ]),
+              )
+            : undefined;
+
+          let res: any;
+          switch (input.method) {
+            case 'GET':
+              res = await client.get<any>(input.path, query);
+              break;
+            case 'POST':
+              res = await client.post<any>(input.path, input.body ?? {});
+              break;
+            case 'PATCH':
+              res = await client.patch<any>(input.path, input.body ?? {});
+              break;
+            case 'PUT':
+              res = await client.put<any>(input.path, input.body ?? {});
+              break;
+            case 'DELETE':
+              res = await client.delete<any>(input.path, input.body ?? {});
+              break;
+            default:
+              return {
+                content: [{ type: 'text', text: `❌ Unsupported method "${input.method}".` }],
+                isError: true,
+              };
+          }
+
+          return {
+            content: [{ type: 'text', text: formatPlatformApiResponse(input.method, input.path, res) }],
+          };
         }
 
         default:
