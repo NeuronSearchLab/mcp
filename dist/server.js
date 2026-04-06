@@ -404,8 +404,10 @@ const PLATFORM_ROUTE_GUIDE = {
         'POST /api/catalogue-ingest/:id/trigger -> manually trigger ingest',
     ],
     events: [
+        'GET /api/events/event-types -> list event types with counts',
         'POST /api/events/event-types -> create an event type',
         'PUT /api/events/event-types/:id -> update an event type',
+        'DELETE /api/events/event-types/:id -> delete an event type',
         'POST /api/events/save-values -> bulk save event names/weights',
         'GET /api/events/templates -> list training templates',
         'POST /api/events/templates -> create a training template',
@@ -1526,6 +1528,50 @@ const TOOLS = [
         inputSchema: { type: 'object', properties: {} },
     },
     {
+        name: 'list_event_types',
+        description: 'List all configured event types (click, view, purchase, etc.) for the team. ' +
+            'Returns each event type with its ID, name, weight/value (0–100), and recorded event count.',
+        inputSchema: { type: 'object', properties: {} },
+    },
+    {
+        name: 'create_event_type',
+        description: 'Create a new event type that can be tracked in the recommendation model. ' +
+            'The value (0–100) controls how much weight this signal has during training.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                event_name: { type: 'string', description: 'Display name for the event (e.g. "purchase", "add_to_cart").' },
+                value: { type: 'number', description: 'Weight/importance of this event signal (0–100). Default: 50.' },
+            },
+            required: ['event_name'],
+        },
+    },
+    {
+        name: 'update_event_type',
+        description: 'Update an existing event type\'s name or weight. Use list_event_types first to find the event_id.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                event_id: { type: 'string', description: 'The event type ID to update.' },
+                event_name: { type: 'string', description: 'New display name.' },
+                value: { type: 'number', description: 'New weight/importance (0–100).' },
+            },
+            required: ['event_id', 'event_name', 'value'],
+        },
+    },
+    {
+        name: 'delete_event_type',
+        description: 'Permanently delete an event type. This cannot be undone. ' +
+            'Existing tracked events referencing this type will remain in the database but the type definition will be removed.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                event_id: { type: 'string', description: 'The event type ID to delete.' },
+            },
+            required: ['event_id'],
+        },
+    },
+    {
         name: 'list_platform_routes',
         description: 'List the internal admin-console API routes that the standalone MCP can reach in internal mode. ' +
             'Use this when the user asks for a UI capability that does not have a dedicated MCP tool yet.',
@@ -1614,6 +1660,10 @@ const ADMIN_TOOL_NAMES = new Set([
     'create_api_key',
     'revoke_api_key',
     'list_integrations',
+    'list_event_types',
+    'create_event_type',
+    'update_event_type',
+    'delete_event_type',
     'list_platform_routes',
     'call_platform_api',
 ]);
@@ -1667,6 +1717,10 @@ function getExportedTools(mode) {
             'create_api_key',
             'revoke_api_key',
             'list_integrations',
+            'list_event_types',
+            'create_event_type',
+            'update_event_type',
+            'delete_event_type',
             'list_platform_routes',
             'call_platform_api',
         ].includes(tool.name));
@@ -2476,6 +2530,38 @@ export function createServer(client, mode = 'public') {
                     const integrations = Array.isArray(res?.integrations) ? res.integrations : [];
                     const text = formatList('integration(s)', integrations, (i) => `[id: ${i.id}] ${i.name} (type: ${i.type ?? 'n/a'}, status: ${i.status ?? 'unknown'})`);
                     return { content: [{ type: 'text', text }] };
+                }
+                case 'list_event_types': {
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const events = await client.get('/api/events/event-types');
+                    const rows = Array.isArray(events) ? events : [];
+                    const text = formatList('event type(s)', rows, (e) => `[id: ${e.event_id}] ${e.event_name} (weight: ${e.value}, events recorded: ${e.event_count ?? 0})`);
+                    return { content: [{ type: 'text', text }] };
+                }
+                case 'create_event_type': {
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const eventName = String(args.event_name);
+                    const value = Number(args.value ?? 50);
+                    const res = await client.post('/api/events/event-types', { event_name: eventName, value });
+                    return { content: [{ type: 'text', text: `✅ Event type "${eventName}" created with id: ${res.event_id} (weight: ${value}).` }] };
+                }
+                case 'update_event_type': {
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const eventId = String(args.event_id);
+                    const updName = String(args.event_name);
+                    const updValue = Number(args.value);
+                    await client.put(`/api/events/event-types/${eventId}`, { event_name: updName, value: updValue });
+                    return { content: [{ type: 'text', text: `✅ Event type ${eventId} updated — name: "${updName}", weight: ${updValue}.` }] };
+                }
+                case 'delete_event_type': {
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const delId = String(args.event_id);
+                    await client.delete(`/api/events/event-types/${delId}`);
+                    return { content: [{ type: 'text', text: `✅ Event type ${delId} deleted.` }] };
                 }
                 case 'list_platform_routes': {
                     if (mode !== 'internal')
