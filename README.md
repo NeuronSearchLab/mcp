@@ -97,6 +97,19 @@ Set env vars `NSL_CLIENT_ID` and `NSL_CLIENT_SECRET`.
 
 ---
 
+## Releases
+
+This repo uses Changesets plus GitHub Actions for automated versioning and npm publishing.
+
+- Add a changeset for any user-facing package change with `npm run changeset`
+- Merge that PR into `main`
+- The `release.yml` workflow opens or updates a version PR
+- Merging the version PR publishes `@neuronsearchlab/mcp` to npm automatically
+
+To enable trusted publishing, configure the package on npmjs.com to trust the `release.yml` workflow in this repository.
+
+---
+
 ## Configuration
 
 All configuration is via environment variables:
