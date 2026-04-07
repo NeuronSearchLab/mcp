@@ -1,6 +1,6 @@
 {
   "name": "@neuronsearchlab/mcp",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "MCP server for NeuronSearchLab public API and internal platform tools",
   "type": "module",
   "exports": {

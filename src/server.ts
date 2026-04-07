@@ -1881,7 +1881,7 @@ function unsupportedAdminToolResponse(toolName: string, mode: ServerMode) {
 
 export function createServer(client: NeuronClient, mode: ServerMode = 'public'): Server {
   const server = new Server(
-    { name: 'neuronsearchlab', version: '0.3.0' },
+    { name: 'neuronsearchlab', version: '0.4.1' },
     { capabilities: { tools: {} } },
   );
 

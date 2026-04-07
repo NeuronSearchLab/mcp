@@ -10,6 +10,24 @@ import { TokenManager } from './auth.js';
 const DEFAULT_API_BASE = 'https://api.neuronsearchlab.com';
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+function normalizeErrorMessage(raw: string, res: Response): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return res.statusText || `HTTP ${res.status}`;
+  }
+
+  if (/^\s*<!doctype html/i.test(trimmed) || /^\s*<html/i.test(trimmed)) {
+    return trimmed
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  return trimmed;
+}
+
 export interface ClientConfig {
   tokenManager?: TokenManager;
   staticToken?: string;
@@ -80,9 +98,9 @@ export class NeuronClient {
         let errMsg: string;
         try {
           const parsed = JSON.parse(raw);
-          errMsg = parsed.error ?? parsed.message ?? raw;
+          errMsg = parsed.error ?? parsed.message ?? normalizeErrorMessage(raw, res);
         } catch {
-          errMsg = raw;
+          errMsg = normalizeErrorMessage(raw, res);
         }
 
         if (RETRY_STATUSES.has(res.status) && attempt < this.maxRetries) {

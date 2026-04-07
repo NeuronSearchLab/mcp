@@ -1740,7 +1740,7 @@ function unsupportedAdminToolResponse(toolName, mode) {
 }
 // ─── Server factory ───────────────────────────────────────────────────────────
 export function createServer(client, mode = 'public') {
-    const server = new Server({ name: 'neuronsearchlab', version: '0.3.0' }, { capabilities: { tools: {} } });
+    const server = new Server({ name: 'neuronsearchlab', version: '0.4.1' }, { capabilities: { tools: {} } });
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getExportedTools(mode) }));
     // Call tool
