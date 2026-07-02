@@ -85,6 +85,36 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop. You'll see a 🔌 **neuronsearchlab** indicator in the toolbar when it's connected.
 
+### Try it
+
+Once connected, use this short demo path to prove the server is useful before wiring it into a larger workflow:
+
+1. Fetch recommendations for a known user and context.
+2. Search the catalogue for a concrete product phrase.
+3. Record a click event against one returned item, including the response `request_id` when available.
+4. Ask for a ranking explanation on the clicked item.
+
+```text
+Get 10 recommendations for user demo-user@example.com using context homepage-feed
+Search the catalogue for waterproof jackets and show the top 5 item ids
+Record event type id 1 as a click for item jacket-123 from user demo-user@example.com, using the request_id from the recommendation or search response
+Explain why item jacket-123 ranked first for demo-user@example.com
+```
+
+For internal mode, keep the first pass read-only:
+
+```text
+List my recommendation contexts
+Show the latest ranking metrics
+Compare item jacket-123 with item jacket-456
+```
+
+Next steps after the smoke test:
+
+- create a scoped API key for the client or MCP server
+- connect one real recommendation context, such as `homepage-feed`
+- add request attribution to click/view events before judging ranking quality
+
 ### 3. Cursor / other MCP clients
 
 Follow your client's MCP server guide. The command is:
