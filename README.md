@@ -18,6 +18,7 @@ MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsear
 
 - Product site: https://www.neuronsearchlab.com
 - MCP setup guide: https://docs.neuronsearchlab.com/sdk/mcp
+- AI agents for recommendation operations: https://www.neuronsearchlab.com/blog/ai-agents-for-recommendation-operations
 - Recommendation systems reading path: https://www.neuronsearchlab.com/blog/recommendation-systems
 
 ## Tools
