@@ -1,6 +1,6 @@
 # @neuronsearchlab/mcp
 
-MCP (Model Context Protocol) server for [NeuronSearchLab](https://neuronsearchlab.com). Gives any MCP-compatible AI client (Claude Desktop, Cursor, Windsurf, etc.) direct access to NeuronSearchLab in two modes:
+MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsearchlab.com). Gives any MCP-compatible AI client (Claude Desktop, Cursor, Windsurf, etc.) direct access to NeuronSearchLab recommendations, product/content search, catalogue operations, analytics, and platform controls in two modes:
 
 - `public`: recommendations, events, and catalogue operations via OAuth client credentials
 - `internal`: internal admin-platform operations via console API key auth
@@ -13,6 +13,12 @@ MCP (Model Context Protocol) server for [NeuronSearchLab](https://neuronsearchla
 ```
 
 ---
+
+## Resources
+
+- Product site: https://www.neuronsearchlab.com
+- MCP setup guide: https://docs.neuronsearchlab.com/sdk/mcp
+- Recommendation systems reading path: https://www.neuronsearchlab.com/blog/recommendation-systems
 
 ## Tools
 

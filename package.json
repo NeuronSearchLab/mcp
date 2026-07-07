@@ -1,7 +1,7 @@
 {
   "name": "@neuronsearchlab/mcp",
   "version": "0.4.1",
-  "description": "MCP server for NeuronSearchLab public API and internal platform tools",
+  "description": "MCP server for NeuronSearchLab recommendations, search, catalogue, analytics, and platform operations.",
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
@@ -45,11 +45,14 @@
     "url": "https://github.com/NeuronSearchLab/mcp.git"
   },
   "keywords": [
-    "mcp",
     "neuronsearchlab",
-    "recommendations",
-    "ai",
-    "personalization"
+    "mcp",
+    "model-context-protocol",
+    "recommendation-systems",
+    "personalization",
+    "search",
+    "ai-agents"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://docs.neuronsearchlab.com/sdk/mcp"
 }
