@@ -1,6 +1,8 @@
+import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+const PACKAGE_VERSION = createRequire(import.meta.url)('../package.json').version ?? '0.0.0';
 // ─── Input schemas ────────────────────────────────────────────────────────────
 const GetRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
@@ -1667,6 +1669,93 @@ const ADMIN_TOOL_NAMES = new Set([
     'list_platform_routes',
     'call_platform_api',
 ]);
+const TOOL_METADATA = {
+    get_recommendations: { title: 'Get recommendations', readOnly: true },
+    get_auto_recommendations: { title: 'Get auto recommendations', readOnly: true },
+    track_event: { title: 'Track event' },
+    upsert_item: { title: 'Upsert catalogue item' },
+    patch_item: { title: 'Patch catalogue item' },
+    delete_items: { title: 'Delete catalogue items', destructive: true },
+    search_items: { title: 'Search catalogue', readOnly: true },
+    explain_ranking: { title: 'Explain ranking', readOnly: true },
+    list_contexts: { title: 'List contexts', readOnly: true },
+    create_context: { title: 'Create context' },
+    update_context: { title: 'Update context' },
+    delete_context: { title: 'Delete context', destructive: true },
+    get_context: { title: 'Get context', readOnly: true },
+    list_pipelines: { title: 'List pipelines', readOnly: true },
+    create_pipeline: { title: 'Create pipeline' },
+    update_pipeline: { title: 'Update pipeline' },
+    delete_pipeline: { title: 'Delete pipeline', destructive: true },
+    get_pipeline: { title: 'Get pipeline', readOnly: true },
+    activate_pipeline: { title: 'Activate pipeline' },
+    deactivate_pipeline: { title: 'Deactivate pipeline' },
+    clone_pipeline: { title: 'Clone pipeline' },
+    list_rules: { title: 'List rules', readOnly: true },
+    create_rule: { title: 'Create rule' },
+    update_rule: { title: 'Update rule' },
+    delete_rule: { title: 'Delete rule', destructive: true },
+    get_rule: { title: 'Get rule', readOnly: true },
+    toggle_rule: { title: 'Toggle rule' },
+    enable_rule: { title: 'Enable rule' },
+    disable_rule: { title: 'Disable rule' },
+    reorder_rules: { title: 'Reorder rules' },
+    list_segments: { title: 'List segments', readOnly: true },
+    get_segment: { title: 'Get segment', readOnly: true },
+    create_segment: { title: 'Create segment' },
+    update_segment: { title: 'Update segment' },
+    delete_segment: { title: 'Delete segment', destructive: true },
+    get_segment_stats: { title: 'Get segment stats', readOnly: true },
+    list_experiments: { title: 'List experiments', readOnly: true },
+    get_experiment: { title: 'Get experiment', readOnly: true },
+    create_experiment: { title: 'Create experiment' },
+    update_experiment: { title: 'Update experiment' },
+    start_experiment: { title: 'Start experiment' },
+    stop_experiment: { title: 'Stop experiment' },
+    get_experiment_results: { title: 'Get experiment results', readOnly: true },
+    list_campaigns: { title: 'List campaigns', readOnly: true },
+    get_campaign: { title: 'Get campaign', readOnly: true },
+    create_campaign: { title: 'Create campaign' },
+    update_campaign: { title: 'Update campaign' },
+    delete_campaign: { title: 'Delete campaign', destructive: true },
+    activate_campaign: { title: 'Activate campaign' },
+    pause_campaign: { title: 'Pause campaign' },
+    list_training_jobs: { title: 'List training jobs', readOnly: true },
+    get_training_job: { title: 'Get training job', readOnly: true },
+    create_training_job: { title: 'Create training job' },
+    cancel_training_job: { title: 'Cancel training job', destructive: true },
+    get_ranking_metrics: { title: 'Get ranking metrics', readOnly: true },
+    get_experiment_metrics: { title: 'Get experiment metrics', readOnly: true },
+    get_segment_metrics: { title: 'Get segment metrics', readOnly: true },
+    get_user_analytics: { title: 'Get user analytics', readOnly: true },
+    get_item_analytics: { title: 'Get item analytics', readOnly: true },
+    compare_items: { title: 'Compare items', readOnly: true },
+    top_items: { title: 'Top items', readOnly: true },
+    list_api_keys: { title: 'List API keys', readOnly: true },
+    create_api_key: { title: 'Create API key' },
+    revoke_api_key: { title: 'Revoke API key', destructive: true },
+    list_integrations: { title: 'List integrations', readOnly: true },
+    list_event_types: { title: 'List event types', readOnly: true },
+    create_event_type: { title: 'Create event type' },
+    update_event_type: { title: 'Update event type' },
+    delete_event_type: { title: 'Delete event type', destructive: true },
+    list_platform_routes: { title: 'List platform routes', readOnly: true },
+    call_platform_api: { title: 'Call platform API', destructive: true },
+};
+function decorateTool(tool) {
+    const meta = TOOL_METADATA[tool.name];
+    if (!meta)
+        return tool;
+    return {
+        ...tool,
+        title: meta.title,
+        annotations: {
+            title: meta.title,
+            readOnlyHint: meta.readOnly === true,
+            destructiveHint: meta.destructive === true,
+        },
+    };
+}
 function getExportedTools(mode) {
     if (mode === 'internal') {
         return TOOLS.filter((tool) => [
@@ -1723,9 +1812,9 @@ function getExportedTools(mode) {
             'delete_event_type',
             'list_platform_routes',
             'call_platform_api',
-        ].includes(tool.name));
+        ].includes(tool.name)).map(decorateTool);
     }
-    return TOOLS.filter((tool) => !ADMIN_TOOL_NAMES.has(tool.name));
+    return TOOLS.filter((tool) => !ADMIN_TOOL_NAMES.has(tool.name)).map(decorateTool);
 }
 function unsupportedAdminToolResponse(toolName, mode) {
     return {
@@ -1740,7 +1829,7 @@ function unsupportedAdminToolResponse(toolName, mode) {
 }
 // ─── Server factory ───────────────────────────────────────────────────────────
 export function createServer(client, mode = 'public') {
-    const server = new Server({ name: 'neuronsearchlab', version: '0.4.1' }, { capabilities: { tools: {} } });
+    const server = new Server({ name: 'neuronsearchlab', title: 'NeuronSearchLab', version: PACKAGE_VERSION }, { capabilities: { tools: {} } });
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getExportedTools(mode) }));
     // Call tool
