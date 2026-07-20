@@ -1,0 +1,62 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.neuronsearchlab/mcp",
+  "description": "Recommendations, search, catalogue, analytics, and platform admin tools for NeuronSearchLab",
+  "version": "0.5.0",
+  "websiteUrl": "https://docs.neuronsearchlab.com/sdk/mcp",
+  "repository": {
+    "url": "https://github.com/NeuronSearchLab/mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://console.neuronsearchlab.com/api/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <NSL API key>. Optional — the endpoint also supports OAuth sign-in via discovery.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@neuronsearchlab/mcp",
+      "version": "0.5.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NSL_CLIENT_ID",
+          "description": "OAuth client ID for public mode (SDK Credentials from console → Security).",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "NSL_CLIENT_SECRET",
+          "description": "OAuth client secret for public mode.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "NSL_PLATFORM_MODE",
+          "description": "Set to 'internal' for admin-platform tools with an API key; defaults to 'public'.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NSL_API_KEY",
+          "description": "NSL API key (nsl_...) for internal mode.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

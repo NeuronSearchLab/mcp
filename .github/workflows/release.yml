@@ -45,6 +45,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to npm
+        id: npm_publish
         if: steps.changesets.outputs.hasChangesets == 'false'
         env:
           NPM_CONFIG_PROVENANCE: "true"
@@ -55,8 +56,29 @@ jobs:
 
           if [ "$PACKAGE_VERSION" = "$PUBLISHED_VERSION" ]; then
             echo "Version $PACKAGE_VERSION for $PACKAGE_NAME is already published; skipping."
+            echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           npm run build
           npm publish
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to MCP Registry
+        if: steps.npm_publish.outputs.published == 'true'
+        env:
+          MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+        run: |
+          # Sync server.json versions from package.json, then publish the
+          # registry entry (DNS-verified com.neuronsearchlab namespace).
+          node -e "
+            const fs = require('fs');
+            const pkgVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+            const server = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+            server.version = pkgVersion;
+            for (const p of server.packages ?? []) p.version = pkgVersion;
+            fs.writeFileSync('server.json', JSON.stringify(server, null, 2) + '\n');
+          "
+          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login dns --domain neuronsearchlab.com --private-key "$MCP_REGISTRY_PRIVATE_KEY"
+          ./mcp-publisher publish
