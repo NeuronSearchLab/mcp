@@ -1,15 +1,56 @@
 # @neuronsearchlab/mcp
 
-MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsearchlab.com). Gives any MCP-compatible AI client (Claude Desktop, Cursor, Windsurf, etc.) direct access to NeuronSearchLab recommendations, product/content search, catalogue operations, analytics, and platform controls in two modes:
-
-- `public`: recommendations, events, and catalogue operations via OAuth client credentials
-- `internal`: internal admin-platform operations via console API key auth
+MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsearchlab.com). Gives any MCP-compatible AI client (Claude, Codex, Cursor, Windsurf, etc.) direct access to NeuronSearchLab recommendations, product/content search, catalogue operations, analytics, and platform controls.
 
 ```
 "Get 5 recommendations for user alice@example.com"
 "Create a new context called Twitter Feed"
 "Add a pin rule so Nike items always appear in the top 3"
 "Why did item prod-456 rank first for bob?"
+```
+
+Two ways to run it:
+
+- **Hosted (recommended, no install):** `https://console.neuronsearchlab.com/api/mcp` — Streamable HTTP with OAuth sign-in or an NSL API key. Listed on the [MCP Registry](https://registry.modelcontextprotocol.io) as `com.neuronsearchlab/mcp`.
+- **Local stdio via npm:** `npx -y @neuronsearchlab/mcp` in two modes — `public` (recommendations, events, catalogue via OAuth client credentials) or `internal` (admin platform via console API key).
+
+---
+
+## Connect to the hosted server (no install)
+
+The hosted endpoint runs the full platform toolset; what a connection can actually do is governed by the scopes of the API key behind it (an `admin`-scoped key unlocks everything). Keys minted through OAuth consent appear in [console → Security](https://console.neuronsearchlab.com/security) and can be revoked there anytime.
+
+**claude.ai / Claude Desktop** — Settings → Connectors → Add custom connector → paste `https://console.neuronsearchlab.com/api/mcp` → **Connect**, then sign in to your NeuronSearchLab console and approve the scopes.
+
+**Claude Code**
+
+```bash
+# OAuth (browser sign-in):
+claude mcp add --transport http neuronsearchlab https://console.neuronsearchlab.com/api/mcp
+# …or with an API key:
+claude mcp add --transport http neuronsearchlab https://console.neuronsearchlab.com/api/mcp \
+  --header "Authorization: Bearer nsl_your_key"
+```
+
+**OpenAI Codex** — in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.neuronsearchlab]
+url = "https://console.neuronsearchlab.com/api/mcp"
+bearer_token_env_var = "NSL_API_KEY"
+```
+
+**Cursor / Windsurf / other Streamable HTTP clients**
+
+```json
+{
+  "mcpServers": {
+    "neuronsearchlab": {
+      "url": "https://console.neuronsearchlab.com/api/mcp",
+      "headers": { "Authorization": "Bearer nsl_your_key" }
+    }
+  }
+}
 ```
 
 ---
@@ -60,18 +101,21 @@ Currently supported:
 - experiments: `list_experiments`, `get_experiment`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`, `get_experiment_results`
 - training: `list_training_jobs`, `get_training_job`, `create_training_job`, `cancel_training_job`
 - analytics: `get_ranking_metrics`, `get_user_analytics`, `get_item_analytics`, `compare_items`, `top_items`
+- event types: `list_event_types`, `create_event_type`, `update_event_type`, `delete_event_type`
 - credentials and integrations: `list_api_keys`, `create_api_key`, `revoke_api_key`, `list_integrations`
 - fallback UI coverage: `list_platform_routes`, `call_platform_api`
 
 ---
 
-## Quickstart
+## Quickstart (local stdio)
 
 ### 1. Get credentials
 
 Generate **SDK Credentials** (OAuth 2.0 client ID + secret) from the [NeuronSearchLab console](https://console.neuronsearchlab.com/security).
 
 ### 2. Add to Claude Desktop
+
+**Public mode** (recommendations, events, catalogue):
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -84,6 +128,23 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "env": {
         "NSL_CLIENT_ID": "your-client-id",
         "NSL_CLIENT_SECRET": "your-client-secret"
+      }
+    }
+  }
+}
+```
+
+**Internal mode** (admin platform — contexts, pipelines, rules, analytics, etc.):
+
+```json
+{
+  "mcpServers": {
+    "neuronsearchlab": {
+      "command": "npx",
+      "args": ["-y", "@neuronsearchlab/mcp"],
+      "env": {
+        "NSL_PLATFORM_MODE": "internal",
+        "NSL_API_KEY": "your-admin-api-key"
       }
     }
   }
@@ -130,7 +191,7 @@ Follow your client's MCP server guide. The command is:
 npx @neuronsearchlab/mcp
 ```
 
-Set env vars `NSL_CLIENT_ID` and `NSL_CLIENT_SECRET`.
+Set `NSL_CLIENT_ID` + `NSL_CLIENT_SECRET` for public mode, or `NSL_PLATFORM_MODE=internal` + `NSL_API_KEY` for internal mode.
 
 ---
 
@@ -329,18 +390,6 @@ Update an existing context.
 
 ---
 
-### `delete_context`
-
-Delete a context and its associated pipelines and rules.
-
-**Inputs**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `context_id` | integer | Yes | The context ID to delete |
-
----
-
 ### `list_pipelines`
 
 List all ranking pipelines.
@@ -408,15 +457,83 @@ Create a pin rule called "Pin Nike" that pins items where brand equals "Nike" to
 
 ---
 
-### `update_rule` / `delete_rule` / `toggle_rule`
+### `update_rule` / `delete_rule` / `toggle_rule` / `enable_rule` / `disable_rule`
 
 Update, delete, or enable/disable a rule by `rule_id`.
 
 ---
 
+### `get_user_analytics`
+
+Get served counts, event breakdown, unique-item activity, and click-through rate for a specific user.
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | Yes | User ID or email to inspect |
+| `context_id` | string | No | Scope to a specific context |
+| `window` | `1d` \| `7d` \| `30d` \| `90d` | No | Time window (default `7d`) |
+
+---
+
+### `get_item_analytics`
+
+Get served counts, event breakdown, watch/click counts, and click-through rate for a specific item.
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `item_id` | string | Yes | Item ID to inspect |
+| `context_id` | string | No | Scope to a specific context |
+| `window` | `1d` \| `7d` \| `30d` \| `90d` | No | Time window (default `7d`) |
+
+---
+
+### `compare_items`
+
+Compare two items head-to-head by served count, events, clicks, and CTR over the same time window.
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `item_a_id` | string | Yes | First item ID |
+| `item_b_id` | string | Yes | Second item ID |
+| `context_id` | string | No | Scope to a specific context |
+| `window` | `1d` \| `7d` \| `30d` \| `90d` | No | Time window (default `7d`) |
+
+---
+
+### `top_items`
+
+List the top items by served count or by matching event activity over a time window. Use `metric="served"` for generic "top item" or "best performing" questions. Use `metric="events"` when the user explicitly names an engagement signal (e.g. watch, click, purchase).
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metric` | `served` \| `events` | No | Rank by served count or event count (default `served`) |
+| `event_name` | string | No | Event name filter when `metric=events` (e.g. `"watch"`, `"click"`) |
+| `event_id` | integer | No | Numeric event ID filter when `metric=events` |
+| `context_id` | string | No | Scope to a specific context |
+| `window` | `1d` \| `7d` \| `30d` \| `90d` | No | Time window (default `7d`) |
+| `limit` | integer 1–50 | No | Max items to return (default 10) |
+
+**Example**
+```
+What's the top item served in the last 7 days?
+Which items had the most watch events last month?
+```
+
+---
+
 ## Authentication
 
-The server uses [OAuth 2.0 Client Credentials](https://console.neuronsearchlab.com/security). Tokens are fetched on startup, cached in memory, and auto-refreshed 60 seconds before expiry.
+**Public mode** uses [OAuth 2.0 Client Credentials](https://console.neuronsearchlab.com/security). Tokens are fetched on startup, cached in memory, and auto-refreshed 60 seconds before expiry.
+
+**Internal mode** uses a NeuronSearchLab API key with the `admin` scope. Set `NSL_API_KEY` and `NSL_PLATFORM_MODE=internal`.
 
 ---
 
