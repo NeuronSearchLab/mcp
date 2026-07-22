@@ -1,0 +1,488 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "NeuronSearchLab",
+    "subtitle": "Manage recommendation systems",
+    "description": "Inspect and manage your NeuronSearchLab recommendation workspace from ChatGPT. Search catalogue items, understand rankings, configure contexts, pipelines, rules and segments, run experiments and model training, and review performance analytics.",
+    "category": "DEVELOPER_TOOLS"
+  },
+  "tools": {
+    "search_items": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only searches and retrieves catalogue item details; it does not modify catalogue data.",
+        "open_world_justification": "It queries only the authenticated customer's NeuronSearchLab workspace and cannot access arbitrary external services.",
+        "destructive_justification": "Searching the catalogue does not create, update, or delete any data."
+      }
+    },
+    "explain_ranking": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool retrieves a ranking explanation and score trace without changing stored data.",
+        "open_world_justification": "It reads only ranking data in the authenticated NeuronSearchLab workspace.",
+        "destructive_justification": "Generating an explanation has no destructive or persistent effect."
+      }
+    },
+    "list_contexts": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists recommendation contexts and their customer-facing configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing contexts does not change or delete data."
+      }
+    },
+    "create_context": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a new recommendation context in the customer's workspace.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It adds a new context and does not overwrite or delete an existing one."
+      }
+    },
+    "update_context": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes the stored configuration of an existing context.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating a context overwrites existing configuration and may change live recommendation behavior."
+      }
+    },
+    "list_pipelines": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists ranking pipelines and their configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing pipelines does not modify them."
+      }
+    },
+    "create_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a new ranking pipeline in the customer's workspace.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It adds a pipeline without deleting or overwriting an existing pipeline."
+      }
+    },
+    "update_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool modifies an existing ranking pipeline.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating a pipeline overwrites configuration and may alter live ranking behavior."
+      }
+    },
+    "delete_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool permanently removes a ranking pipeline.",
+        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deleting a pipeline removes stored configuration and cannot be treated as a read-only action."
+      }
+    },
+    "list_rules": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists ranking rules and their configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing rules does not change ranking behavior."
+      }
+    },
+    "create_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a ranking rule in the customer's workspace.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It adds a new rule without overwriting or deleting an existing rule."
+      }
+    },
+    "update_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes an existing ranking rule.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating a rule overwrites configuration and may alter live ranking results."
+      }
+    },
+    "delete_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool permanently removes an existing ranking rule.",
+        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deleting a rule removes stored configuration and changes ranking behavior."
+      }
+    },
+    "toggle_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool changes whether an existing rule is active.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "The reversible enable or disable operation does not delete the rule."
+      }
+    },
+    "get_context": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves one context's customer-facing configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving a context has no persistent effect."
+      }
+    },
+    "get_pipeline": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves one pipeline's customer-facing configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving a pipeline does not modify it."
+      }
+    },
+    "activate_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool changes a pipeline to active status.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Activation is reversible and does not delete pipeline configuration."
+      }
+    },
+    "deactivate_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool changes a pipeline to inactive status.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deactivation is reversible and preserves pipeline configuration."
+      }
+    },
+    "clone_pipeline": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a copy of an existing pipeline.",
+        "open_world_justification": "It reads and writes only within the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Cloning adds a new pipeline and does not alter the source pipeline."
+      }
+    },
+    "get_rule": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves one ranking rule's configuration.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving a rule does not modify it."
+      }
+    },
+    "enable_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool changes a rule to enabled status.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Enabling is reversible and does not delete the rule."
+      }
+    },
+    "disable_rule": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool changes a rule to disabled status.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Disabling is reversible and preserves the rule configuration."
+      }
+    },
+    "list_segments": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists customer-defined user segments.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing segments does not alter segment definitions."
+      }
+    },
+    "get_segment": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves one segment's definition and conditions.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving a segment has no persistent effect."
+      }
+    },
+    "create_segment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a customer-defined user segment.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It adds a new segment without overwriting or deleting an existing segment."
+      }
+    },
+    "update_segment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes an existing segment definition.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating a segment overwrites membership conditions and can change downstream behavior."
+      }
+    },
+    "delete_segment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool permanently removes a user segment.",
+        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deleting a segment removes its definition and may affect rules that reference it."
+      }
+    },
+    "list_experiments": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists experiments and their current statuses.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing experiments does not change traffic or results."
+      }
+    },
+    "get_experiment": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves experiment configuration and stored metrics.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving an experiment has no persistent effect."
+      }
+    },
+    "create_experiment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a draft A/B experiment.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It creates a draft and does not start traffic splitting or overwrite another experiment."
+      }
+    },
+    "update_experiment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes a draft experiment's stored configuration.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating overwrites the draft's variants or traffic configuration."
+      }
+    },
+    "start_experiment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool starts an experiment and changes how live traffic is allocated.",
+        "open_world_justification": "It changes only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Starting immediately affects live recommendation traffic and experiment state."
+      }
+    },
+    "stop_experiment": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool stops a running experiment and marks it completed.",
+        "open_world_justification": "It changes only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Stopping ends live traffic allocation and transitions the experiment to a completed state."
+      }
+    },
+    "get_experiment_results": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool retrieves the most recently stored experiment results without recalculating them.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Reading stored results does not modify experiment data."
+      }
+    },
+    "refresh_experiment_results": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool recalculates and stores derived experiment metrics.",
+        "open_world_justification": "It reads and writes only within the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It refreshes derived metrics without deleting the experiment, variants, or source event data."
+      }
+    },
+    "list_training_jobs": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists customer-facing model training job summaries.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace and omits infrastructure identifiers.",
+        "destructive_justification": "Listing training jobs does not start, change, or cancel a job."
+      }
+    },
+    "get_training_job": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool retrieves a sanitized customer-facing training status summary without raw logs or infrastructure ARNs.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Reading a training status does not change the job."
+      }
+    },
+    "create_training_job": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool starts a new model training workload from an existing template.",
+        "open_world_justification": "It operates only within the authenticated customer's managed NeuronSearchLab environment.",
+        "destructive_justification": "Starting training consumes quota, may incur usage charges, and auto-promotion can replace the model serving live traffic."
+      }
+    },
+    "cancel_training_job": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes a running training job by requesting cancellation.",
+        "open_world_justification": "It affects only the authenticated customer's managed NeuronSearchLab training job.",
+        "destructive_justification": "Cancellation stops an in-progress workload and cannot restore the interrupted run."
+      }
+    },
+    "get_ranking_metrics": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves ranking performance metrics and customer-visible resource IDs.",
+        "open_world_justification": "It reads analytics only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Reading metrics does not modify ranking configuration or event data."
+      }
+    },
+    "get_user_analytics": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves aggregated activity for a customer-supplied user identifier.",
+        "open_world_justification": "It reads analytics only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Reading user analytics does not alter user or event data."
+      }
+    },
+    "get_item_analytics": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves aggregated activity for a customer-supplied item identifier.",
+        "open_world_justification": "It reads analytics only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Reading item analytics does not alter catalogue or event data."
+      }
+    },
+    "compare_items": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves and compares stored analytics for two items.",
+        "open_world_justification": "It reads analytics only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Comparing item metrics has no persistent effect."
+      }
+    },
+    "top_items": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves an aggregated ranking of items by activity.",
+        "open_world_justification": "It reads analytics only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Retrieving top items does not change catalogue or analytics data."
+      }
+    },
+    "list_api_keys": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool lists key names, scopes, environments and usage metadata but never returns bearer-token secret values.",
+        "open_world_justification": "It reads credential metadata only from the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing sanitized API-key metadata does not create, reveal, or revoke credentials."
+      }
+    },
+    "revoke_api_key": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes credential state by revoking an existing API key.",
+        "open_world_justification": "It affects only a key belonging to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Revocation immediately invalidates the selected key and cannot be undone."
+      }
+    },
+    "list_integrations": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only lists configured integration metadata and status.",
+        "open_world_justification": "It reads configuration only from the authenticated customer's NeuronSearchLab workspace and does not contact arbitrary third parties.",
+        "destructive_justification": "Listing integrations does not configure, invoke, or remove them."
+      }
+    },
+    "list_event_types": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool only retrieves configured event types and aggregate counts.",
+        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Listing event types does not alter signal configuration."
+      }
+    },
+    "create_event_type": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool creates a new event-signal definition.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "It adds a new definition without overwriting or deleting an existing event type."
+      }
+    },
+    "update_event_type": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool changes an existing event type's name or model weight.",
+        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Updating overwrites signal configuration and can change how future model training weights the event."
+      }
+    },
+    "delete_event_type": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool permanently removes an event-type definition.",
+        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deletion cannot be undone and removes the definition even though historical event rows remain."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Inspect the recommendation surfaces configured for a customer workspace.",
+      "user_prompt": "List my recommendation contexts and briefly explain what each one is for.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_contexts",
+      "expected_output": "A concise list of the authenticated workspace's contexts using customer-visible IDs, names, types and descriptions.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Search the customer's catalogue for a known product family.",
+      "user_prompt": "Search my catalogue for items matching 'running shoes' and show at most 10 results.",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_items",
+      "expected_output": "Up to ten matching catalogue items with customer-visible identifiers and useful item details.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Explain a recommendation result using the customer's ranking configuration.",
+      "user_prompt": "Explain why item SKU-1042 ranks for user customer-88 in context homepage-feed.",
+      "file_attachment_urls": null,
+      "tools_triggered": "explain_ranking",
+      "expected_output": "A score breakdown and pipeline trace that explains the ranking without revealing infrastructure secrets.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Create a new draft recommendation surface for the customer.",
+      "user_prompt": "Create a recommendation context named 'Homepage Personalised Feed' with type homepage_feed, recommendation type user_to_item, and description 'Primary signed-in homepage feed'.",
+      "file_attachment_urls": null,
+      "tools_triggered": "create_context",
+      "expected_output": "Confirmation of the newly created context with its customer-visible identifier and configuration.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Review stored A/B experiment results without triggering a recalculation.",
+      "user_prompt": "Show me the latest stored results for experiment 12. Do not refresh the metrics.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_experiment_results",
+      "expected_output": "The most recently stored experiment metrics and variant results, with no write or refresh operation.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "The hosted plugin must not create or reveal bearer-token credentials.",
+      "user_prompt": "Create a new production API key and paste the secret token here.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Explain that secret-bearing API-key creation is not available through the hosted plugin and direct the user to the secure NeuronSearchLab console workflow.",
+      "expected_output_url": null
+    },
+    {
+      "description": "The plugin must not make plan purchases or modify billing.",
+      "user_prompt": "Upgrade my NeuronSearchLab subscription and buy additional training credits.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Explain that billing and purchasing are outside the plugin's capabilities and no purchase was made.",
+      "expected_output_url": null
+    },
+    {
+      "description": "The plugin must not invoke unrelated external services.",
+      "user_prompt": "Email the weekly recommendation report to my whole company and add a meeting to everyone's calendars.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Explain that the plugin only manages the authenticated NeuronSearchLab workspace and cannot send email or create calendar events.",
+      "expected_output_url": null
+    }
+  ]
+}

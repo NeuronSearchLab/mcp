@@ -3,6 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 const PACKAGE_VERSION = createRequire(import.meta.url)('../package.json').version ?? '0.0.0';
+export const HOSTED_PROFILE_VERSION = 1;
 // ─── Input schemas ────────────────────────────────────────────────────────────
 const GetRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
@@ -273,14 +274,14 @@ const PauseCampaignInput = z.object({
 });
 // ─── Training job schemas ─────────────────────────────────────────────────────
 const GetTrainingJobInput = z.object({
-    job_id: z.string().describe('Training job ID or execution ARN.'),
+    job_id: z.string().describe('Training job ID returned by list_training_jobs.'),
 });
 const CreateTrainingJobInput = z.object({
-    model_type: z.string().optional().describe('Model type to train (e.g. "nsl-embed-v2"). Defaults to the team default.'),
-    config: z.record(z.unknown()).optional().describe('Training configuration overrides.'),
+    template_id: z.number().int().positive().describe('Training template ID from the NeuronSearchLab console.'),
+    training_options: z.record(z.unknown()).optional().describe('Optional training configuration overrides.'),
 });
 const CancelTrainingJobInput = z.object({
-    job_id: z.string().describe('Training job ID or execution ARN to cancel.'),
+    job_id: z.string().describe('Training job ID returned by list_training_jobs.'),
 });
 // ─── Analytics schemas ────────────────────────────────────────────────────────
 const GetRankingMetricsInput = z.object({
@@ -618,6 +619,22 @@ function formatTopItemsFallback(primaryRes, fallbackRes) {
         '',
         fallbackText,
     ].join('\n');
+}
+function formatTrainingJob(job) {
+    const safeSummary = {
+        id: job?.id,
+        status: job?.status ?? job?.sageMaker?.pipelineExecutionStatus,
+        display_name: job?.display_name ?? job?.name,
+        template_id: job?.template_id,
+        model_id: job?.model_id,
+        created_at: job?.created_at,
+        started_at: job?.started_at,
+        completed_at: job?.completed_at,
+        updated_at: job?.updated_at,
+        metrics: job?.metrics ?? job?.final_metrics,
+        failure_reason: job?.failure_reason ?? job?.error_message,
+    };
+    return JSON.stringify(Object.fromEntries(Object.entries(safeSummary).filter(([, value]) => value !== undefined && value !== null)), null, 2);
 }
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 const TOOLS = [
@@ -1263,11 +1280,22 @@ const TOOLS = [
     },
     {
         name: 'get_experiment_results',
-        description: 'Get statistical results for a completed or running experiment — per-variant CTR, conversion rate, revenue per session, sample sizes, and a winner recommendation.',
+        description: 'Get the most recently calculated statistical results for a completed or running experiment without changing stored data.',
         inputSchema: {
             type: 'object',
             properties: {
-                experiment_id: { type: 'number', description: 'The experiment ID to get results for.' },
+                experiment_id: { type: 'number', description: 'The experiment ID to get stored results for.' },
+            },
+            required: ['experiment_id'],
+        },
+    },
+    {
+        name: 'refresh_experiment_results',
+        description: 'Recalculate experiment metrics from current recommendation and event data, store the refreshed metrics, and return the updated experiment results.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                experiment_id: { type: 'number', description: 'The experiment ID whose metrics should be recalculated.' },
             },
             required: ['experiment_id'],
         },
@@ -1368,24 +1396,25 @@ const TOOLS = [
     },
     {
         name: 'get_training_job',
-        description: 'Get details and logs for a specific training job.',
+        description: 'Get a customer-facing status summary for a specific training job without returning infrastructure identifiers or raw logs.',
         inputSchema: {
             type: 'object',
             properties: {
-                job_id: { type: 'string', description: 'Training job ID or execution ARN.' },
+                job_id: { type: 'string', description: 'Training job ID returned by list_training_jobs.' },
             },
             required: ['job_id'],
         },
     },
     {
         name: 'create_training_job',
-        description: 'Trigger a new model training job. The job trains on all available interaction data and replaces the current model when complete.',
+        description: 'Start a model training job from an existing template. This consumes training quota and may incur usage charges; auto-promotion options can replace the model serving live traffic.',
         inputSchema: {
             type: 'object',
             properties: {
-                model_type: { type: 'string', description: 'Model type to train (e.g. "nsl-embed-v2"). Uses team default if omitted.' },
-                config: { type: 'object', description: 'Training configuration overrides.', additionalProperties: true },
+                template_id: { type: 'number', description: 'Training template ID from the NeuronSearchLab console.' },
+                training_options: { type: 'object', description: 'Optional training configuration overrides.', additionalProperties: true },
             },
+            required: ['template_id'],
         },
     },
     {
@@ -1394,7 +1423,7 @@ const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                job_id: { type: 'string', description: 'Training job ID or execution ARN to cancel.' },
+                job_id: { type: 'string', description: 'Training job ID returned by list_training_jobs.' },
             },
             required: ['job_id'],
         },
@@ -1640,6 +1669,7 @@ const ADMIN_TOOL_NAMES = new Set([
     'start_experiment',
     'stop_experiment',
     'get_experiment_results',
+    'refresh_experiment_results',
     'list_campaigns',
     'get_campaign',
     'create_campaign',
@@ -1669,23 +1699,26 @@ const ADMIN_TOOL_NAMES = new Set([
     'list_platform_routes',
     'call_platform_api',
 ]);
+const HOSTED_SECURITY_SCHEMES = [
+    { type: 'oauth2', scopes: ['admin'] },
+];
 const TOOL_METADATA = {
     get_recommendations: { title: 'Get recommendations', readOnly: true },
     get_auto_recommendations: { title: 'Get auto recommendations', readOnly: true },
-    track_event: { title: 'Track event' },
-    upsert_item: { title: 'Upsert catalogue item' },
+    track_event: { title: 'Track event', destructive: true },
+    upsert_item: { title: 'Upsert catalogue item', destructive: true },
     patch_item: { title: 'Patch catalogue item' },
     delete_items: { title: 'Delete catalogue items', destructive: true },
     search_items: { title: 'Search catalogue', readOnly: true },
     explain_ranking: { title: 'Explain ranking', readOnly: true },
     list_contexts: { title: 'List contexts', readOnly: true },
     create_context: { title: 'Create context' },
-    update_context: { title: 'Update context' },
+    update_context: { title: 'Update context', destructive: true },
     delete_context: { title: 'Delete context', destructive: true },
     get_context: { title: 'Get context', readOnly: true },
     list_pipelines: { title: 'List pipelines', readOnly: true },
     create_pipeline: { title: 'Create pipeline' },
-    update_pipeline: { title: 'Update pipeline' },
+    update_pipeline: { title: 'Update pipeline', destructive: true },
     delete_pipeline: { title: 'Delete pipeline', destructive: true },
     get_pipeline: { title: 'Get pipeline', readOnly: true },
     activate_pipeline: { title: 'Activate pipeline' },
@@ -1693,7 +1726,7 @@ const TOOL_METADATA = {
     clone_pipeline: { title: 'Clone pipeline' },
     list_rules: { title: 'List rules', readOnly: true },
     create_rule: { title: 'Create rule' },
-    update_rule: { title: 'Update rule' },
+    update_rule: { title: 'Update rule', destructive: true },
     delete_rule: { title: 'Delete rule', destructive: true },
     get_rule: { title: 'Get rule', readOnly: true },
     toggle_rule: { title: 'Toggle rule' },
@@ -1703,26 +1736,27 @@ const TOOL_METADATA = {
     list_segments: { title: 'List segments', readOnly: true },
     get_segment: { title: 'Get segment', readOnly: true },
     create_segment: { title: 'Create segment' },
-    update_segment: { title: 'Update segment' },
+    update_segment: { title: 'Update segment', destructive: true },
     delete_segment: { title: 'Delete segment', destructive: true },
     get_segment_stats: { title: 'Get segment stats', readOnly: true },
     list_experiments: { title: 'List experiments', readOnly: true },
     get_experiment: { title: 'Get experiment', readOnly: true },
     create_experiment: { title: 'Create experiment' },
-    update_experiment: { title: 'Update experiment' },
-    start_experiment: { title: 'Start experiment' },
-    stop_experiment: { title: 'Stop experiment' },
+    update_experiment: { title: 'Update experiment', destructive: true },
+    start_experiment: { title: 'Start experiment', destructive: true },
+    stop_experiment: { title: 'Stop experiment', destructive: true },
     get_experiment_results: { title: 'Get experiment results', readOnly: true },
+    refresh_experiment_results: { title: 'Refresh experiment results' },
     list_campaigns: { title: 'List campaigns', readOnly: true },
     get_campaign: { title: 'Get campaign', readOnly: true },
     create_campaign: { title: 'Create campaign' },
-    update_campaign: { title: 'Update campaign' },
+    update_campaign: { title: 'Update campaign', destructive: true },
     delete_campaign: { title: 'Delete campaign', destructive: true },
     activate_campaign: { title: 'Activate campaign' },
     pause_campaign: { title: 'Pause campaign' },
     list_training_jobs: { title: 'List training jobs', readOnly: true },
     get_training_job: { title: 'Get training job', readOnly: true },
-    create_training_job: { title: 'Create training job' },
+    create_training_job: { title: 'Create training job', destructive: true },
     cancel_training_job: { title: 'Cancel training job', destructive: true },
     get_ranking_metrics: { title: 'Get ranking metrics', readOnly: true },
     get_experiment_metrics: { title: 'Get experiment metrics', readOnly: true },
@@ -1737,26 +1771,44 @@ const TOOL_METADATA = {
     list_integrations: { title: 'List integrations', readOnly: true },
     list_event_types: { title: 'List event types', readOnly: true },
     create_event_type: { title: 'Create event type' },
-    update_event_type: { title: 'Update event type' },
+    update_event_type: { title: 'Update event type', destructive: true },
     delete_event_type: { title: 'Delete event type', destructive: true },
     list_platform_routes: { title: 'List platform routes', readOnly: true },
-    call_platform_api: { title: 'Call platform API', destructive: true },
+    call_platform_api: { title: 'Call platform API', destructive: true, openWorld: true },
 };
-function decorateTool(tool) {
+function decorateTool(tool, profile) {
     const meta = TOOL_METADATA[tool.name];
     if (!meta)
         return tool;
-    return {
+    const decorated = {
         ...tool,
         title: meta.title,
         annotations: {
             title: meta.title,
             readOnlyHint: meta.readOnly === true,
+            openWorldHint: meta.openWorld === true,
             destructiveHint: meta.destructive === true,
         },
     };
+    if (profile === 'hosted') {
+        // ChatGPT's Apps SDK reads the top-level declaration. The _meta mirror is
+        // retained for clients using the backwards-compatible descriptor shape.
+        decorated.securitySchemes = HOSTED_SECURITY_SCHEMES;
+        decorated._meta = {
+            ...tool._meta,
+            securitySchemes: HOSTED_SECURITY_SCHEMES,
+        };
+    }
+    return decorated;
 }
-function getExportedTools(mode) {
+const HOSTED_EXCLUDED_TOOLS = new Set([
+    // Credential material must never be returned into a ChatGPT conversation.
+    'create_api_key',
+    // The hosted plugin exposes first-class tools instead of an arbitrary API escape hatch.
+    'list_platform_routes',
+    'call_platform_api',
+]);
+function getExportedTools(mode, profile) {
     if (mode === 'internal') {
         return TOOLS.filter((tool) => [
             'search_items',
@@ -1794,6 +1846,7 @@ function getExportedTools(mode) {
             'start_experiment',
             'stop_experiment',
             'get_experiment_results',
+            'refresh_experiment_results',
             'list_training_jobs',
             'get_training_job',
             'create_training_job',
@@ -1812,9 +1865,13 @@ function getExportedTools(mode) {
             'delete_event_type',
             'list_platform_routes',
             'call_platform_api',
-        ].includes(tool.name)).map(decorateTool);
+        ].includes(tool.name))
+            .filter((tool) => profile !== 'hosted' || !HOSTED_EXCLUDED_TOOLS.has(tool.name))
+            .map((tool) => decorateTool(tool, profile));
     }
-    return TOOLS.filter((tool) => !ADMIN_TOOL_NAMES.has(tool.name)).map(decorateTool);
+    return TOOLS
+        .filter((tool) => !ADMIN_TOOL_NAMES.has(tool.name))
+        .map((tool) => decorateTool(tool, profile));
 }
 function unsupportedAdminToolResponse(toolName, mode) {
     return {
@@ -1828,10 +1885,10 @@ function unsupportedAdminToolResponse(toolName, mode) {
     };
 }
 // ─── Server factory ───────────────────────────────────────────────────────────
-export function createServer(client, mode = 'public') {
+export function createServer(client, mode = 'public', profile = 'default') {
     const server = new Server({ name: 'neuronsearchlab', title: 'NeuronSearchLab', version: PACKAGE_VERSION }, { capabilities: { tools: {} } });
     // List tools
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getExportedTools(mode) }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getExportedTools(mode, profile) }));
     // Call tool
     server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const { name, arguments: args } = req.params;
@@ -2360,9 +2417,16 @@ export function createServer(client, mode = 'public') {
                     if (mode !== 'internal')
                         return unsupportedAdminToolResponse(name, mode);
                     const input = GetExperimentResultsInput.parse(args);
-                    await client.post(`/api/experiments/${input.experiment_id}/metrics`, {});
                     const res = await client.get(`/api/experiments/${input.experiment_id}`);
                     return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} results:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
+                }
+                case 'refresh_experiment_results': {
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const input = GetExperimentResultsInput.parse(args);
+                    await client.post(`/api/experiments/${input.experiment_id}/metrics`, {});
+                    const res = await client.get(`/api/experiments/${input.experiment_id}`);
+                    return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} metrics refreshed:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
                 }
                 // ── Campaign management ───────────────────────────────────────
                 case 'list_campaigns': {
@@ -2430,24 +2494,22 @@ export function createServer(client, mode = 'public') {
                     if (!job) {
                         return { content: [{ type: 'text', text: `❌ Training job ${input.job_id} not found.` }], isError: true };
                     }
-                    return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${JSON.stringify(job, null, 2)}` }] };
+                    return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${formatTrainingJob(job)}` }] };
                 }
                 case 'create_training_job': {
                     if (mode !== 'internal')
                         return unsupportedAdminToolResponse(name, mode);
                     const input = CreateTrainingJobInput.parse(args);
-                    const templateId = input.config?.templateId ?? input.config?.template_id;
-                    if (!templateId) {
-                        return {
-                            content: [{ type: 'text', text: '❌ create_training_job requires config.templateId when using the internal platform MCP.' }],
-                            isError: true,
-                        };
-                    }
                     const res = await client.post('/api/training/start', {
-                        templateId,
-                        trainingOptions: input.config?.trainingOptions ?? input.config?.training_options ?? {},
+                        templateId: input.template_id,
+                        trainingOptions: input.training_options ?? {},
                     });
-                    return { content: [{ type: 'text', text: `✅ Training job started.\n${JSON.stringify(res, null, 2)}` }] };
+                    const details = [
+                        '✅ Training job started.',
+                        `Job ID: ${res?.jobId ?? 'pending'}`,
+                        ...(res?.warning ? [`Warning: ${res.warning}`] : []),
+                    ];
+                    return { content: [{ type: 'text', text: details.join('\n') }] };
                 }
                 case 'cancel_training_job': {
                     if (mode !== 'internal')

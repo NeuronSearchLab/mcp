@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 0.6.0
+
+### Minor Changes
+
+- Add a hosted tool profile for ChatGPT plugin submission, explicit OpenAI tool annotations, safe experiment-result refresh semantics, accurate training inputs, and sanitized training outputs.
+
 ## 0.5.0
 
 ### Minor Changes
