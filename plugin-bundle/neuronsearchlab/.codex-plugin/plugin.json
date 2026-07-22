@@ -1,0 +1,42 @@
+{
+  "name": "neuronsearchlab",
+  "version": "0.6.0",
+  "description": "Manage and analyze a NeuronSearchLab recommendation workspace.",
+  "author": {
+    "name": "NeuronSearchLab",
+    "url": "https://www.neuronsearchlab.com"
+  },
+  "homepage": "https://docs.neuronsearchlab.com/sdk/mcp",
+  "repository": "https://github.com/NeuronSearchLab/mcp",
+  "license": "MIT",
+  "keywords": [
+    "recommendations",
+    "ranking",
+    "experiments",
+    "analytics",
+    "catalogue"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "NeuronSearchLab",
+    "shortDescription": "Manage recommendation systems",
+    "longDescription": "Inspect and manage your NeuronSearchLab recommendation workspace. Search catalogue items, explain rankings, configure contexts, pipelines, rules and segments, run experiments and training jobs, and review performance analytics.",
+    "developerName": "NeuronSearchLab",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://www.neuronsearchlab.com",
+    "privacyPolicyURL": "https://console.neuronsearchlab.com/privacy",
+    "termsOfServiceURL": "https://console.neuronsearchlab.com/terms",
+    "defaultPrompt": [
+      "Explain why an item ranks for a user in my NSL workspace.",
+      "Review my recommendation contexts and active pipelines.",
+      "Summarize the latest experiment and ranking metrics."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/composer-icon-white.png",
+    "logo": "./assets/directory-icon-black.png"
+  }
+}
