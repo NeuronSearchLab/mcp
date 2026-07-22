@@ -18,7 +18,7 @@ Two ways to run it:
 
 ## Connect to the hosted server (no install)
 
-The hosted endpoint runs the full platform toolset; what a connection can actually do is governed by the scopes of the API key behind it (an `admin`-scoped key unlocks everything). Keys minted through OAuth consent appear in [console → Security](https://console.neuronsearchlab.com/security) and can be revoked there anytime.
+The hosted endpoint runs a submission-safe customer administration profile. It includes first-class tools for ranking configuration, experiments, training, analytics, catalogue inspection, API-key inventory and revocation, integrations, and event types. Every hosted tool declares its OAuth requirement and requires the authenticated team's `admin` scope. Credential creation and the arbitrary platform API fallback remain available only to trusted local/internal clients so secrets, billing actions, and unbounded API calls are not exposed in ChatGPT. Keys minted through OAuth consent appear in [console → Security](https://console.neuronsearchlab.com/security) and can be revoked there anytime.
 
 **claude.ai / Claude Desktop** — Settings → Connectors → Add custom connector → paste `https://console.neuronsearchlab.com/api/mcp` → **Connect**, then sign in to your NeuronSearchLab console and approve the scopes.
 
@@ -98,12 +98,12 @@ Currently supported:
 - pipelines: `list_pipelines`, `create_pipeline`, `update_pipeline`, `delete_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `clone_pipeline`, `get_pipeline`
 - rules: `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `toggle_rule`, `enable_rule`, `disable_rule`, `get_rule`
 - segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`
-- experiments: `list_experiments`, `get_experiment`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`, `get_experiment_results`
+- experiments: `list_experiments`, `get_experiment`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`, `get_experiment_results`, `refresh_experiment_results`
 - training: `list_training_jobs`, `get_training_job`, `create_training_job`, `cancel_training_job`
 - analytics: `get_ranking_metrics`, `get_user_analytics`, `get_item_analytics`, `compare_items`, `top_items`
 - event types: `list_event_types`, `create_event_type`, `update_event_type`, `delete_event_type`
-- credentials and integrations: `list_api_keys`, `create_api_key`, `revoke_api_key`, `list_integrations`
-- fallback UI coverage: `list_platform_routes`, `call_platform_api`
+- credentials and integrations: `list_api_keys`, `revoke_api_key`, `list_integrations` (`create_api_key` is local/internal only because it returns credential material)
+- fallback UI coverage for trusted local/internal clients only: `list_platform_routes`, `call_platform_api`
 
 ---
 

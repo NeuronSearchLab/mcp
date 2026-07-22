@@ -1,6 +1,6 @@
 {
   "name": "@neuronsearchlab/mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "mcpName": "com.neuronsearchlab/mcp",
   "description": "MCP server for NeuronSearchLab recommendations, search, catalogue, analytics, and platform operations.",
   "type": "module",
@@ -21,6 +21,7 @@
     "changeset": "changeset",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
+    "test": "npm run build && node --test test/*.test.mjs",
     "version-packages": "changeset version",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
