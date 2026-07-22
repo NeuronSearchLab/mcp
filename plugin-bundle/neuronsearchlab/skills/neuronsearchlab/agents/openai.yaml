@@ -1,0 +1,16 @@
+interface:
+  display_name: "NeuronSearchLab"
+  short_description: "Manage NSL recommendations and analytics"
+  brand_color: "#2563EB"
+  default_prompt: "Use $neuronsearchlab to review my recommendation contexts and active pipelines."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "neuronsearchlab"
+      description: "Authenticated NeuronSearchLab customer console"
+      transport: "streamable_http"
+      url: "https://console.neuronsearchlab.com/api/mcp"
+
+policy:
+  allow_implicit_invocation: true
