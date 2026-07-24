@@ -11,7 +11,7 @@ MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsear
 
 Two ways to run it:
 
-- **Hosted (recommended, no install):** `https://console.neuronsearchlab.com/api/mcp` — Streamable HTTP with OAuth sign-in or an NSL API key. Listed on the [MCP Registry](https://registry.modelcontextprotocol.io) as `com.neuronsearchlab/mcp`.
+- **Hosted (recommended, no install):** `https://console.neuronsearchlab.com/api/mcp` — Streamable HTTP with OAuth sign-in or an NSL API key. Listed on the [MCP Registry](https://registry.modelcontextprotocol.io) as `com.neuronsearchlab/mcp` (search `neuronsearchlab` in the registry API or directory).
 - **Local stdio via npm:** `npx -y @neuronsearchlab/mcp` in two modes — `public` (recommendations, events, catalogue via OAuth client credentials) or `internal` (admin platform via console API key).
 
 ---
@@ -153,28 +153,31 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop. You'll see a 🔌 **neuronsearchlab** indicator in the toolbar when it's connected.
 
-### Try it
+### Try it: recommendation-ops demo
 
-Once connected, use this short demo path to prove the server is useful before wiring it into a larger workflow:
+Once connected, run this named demo path before wiring the server into a larger workflow. It proves that an AI client can operate the recommender as an investigation surface rather than just call a recommendation endpoint.
 
-1. Fetch recommendations for a known user and context.
-2. Search the catalogue for a concrete product phrase.
-3. Record a click event against one returned item, including the response `request_id` when available.
-4. Ask for a ranking explanation on the clicked item.
+1. **List contexts** so the assistant confirms the exact surface it is about to inspect.
+2. **Fetch recommendations** for a known test user and context.
+3. **Search the catalogue** for a concrete product/content phrase and compare the returned item IDs with the recommendation set.
+4. **Explain one ranked item** using the `request_id` from the recommendation or search response when available.
+5. **Optional, sandbox only:** draft or toggle a rule after the explanation shows the expected leak. Keep production contexts read-only unless the operator explicitly approves a write.
 
 ```text
-Get 10 recommendations for user demo-user@example.com using context homepage-feed
-Search the catalogue for waterproof jackets and show the top 5 item ids
-Record event type id 1 as a click for item jacket-123 from user demo-user@example.com, using the request_id from the recommendation or search response
-Explain why item jacket-123 ranked first for demo-user@example.com
+Use the NeuronSearchLab MCP server in read-only mode first.
+List my recommendation contexts and choose the homepage-feed context.
+Get 10 recommendations for user demo-user@example.com using context homepage-feed.
+Search the catalogue for waterproof jackets and show the top 5 item ids.
+Explain why the first recommended item ranked first, using the request_id from the recommendation response if available.
+If you see a relevance leak, draft the smallest rule that would fix it, but do not create or toggle the rule yet.
 ```
 
-For internal mode, keep the first pass read-only:
+Internal/admin mode can also inspect operational state before making changes:
 
 ```text
-List my recommendation contexts
-Show the latest ranking metrics
-Compare item jacket-123 with item jacket-456
+List ranking rules for the homepage-feed context.
+Show the latest ranking metrics for that context.
+Compare item jacket-123 with item jacket-456 and explain which rule or signal separates them.
 ```
 
 Next steps after the smoke test:

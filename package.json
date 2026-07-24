@@ -24,7 +24,9 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "version-packages": "changeset version",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "check:distribution-metadata": "node scripts/check-distribution-metadata.mjs",
+    "verify:distribution": "node scripts/verify-mcp-distribution.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.2",
