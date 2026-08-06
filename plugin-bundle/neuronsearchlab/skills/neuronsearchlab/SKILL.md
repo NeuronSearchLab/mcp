@@ -1,6 +1,6 @@
 ---
 name: neuronsearchlab
-description: Manage and analyze an authenticated NeuronSearchLab customer workspace through the hosted NSL MCP. Use for recommendation contexts, pipelines, ranking rules, segments, experiments, training jobs, catalogue search, ranking explanations, analytics, event types, API-key inventory or revocation, and integrations. Do not use for credential creation, billing, arbitrary API calls, or resources outside the signed-in workspace.
+description: Manage and analyze an authenticated NeuronSearchLab customer workspace through the hosted NSL MCP. Use for the current account plan and usage limits, recommendation contexts, pipelines, ranking rules, segments, experiments, training jobs, catalogue search, ranking explanations, analytics, event types, API-key inventory or revocation, and integrations. Do not use for credential creation, billing changes, arbitrary API calls, or resources outside the signed-in workspace.
 ---
 
 # NeuronSearchLab
@@ -24,7 +24,7 @@ If a result unexpectedly contains a secret-like value, redact it and summarize t
 
 ## Workflow
 
-1. Identify the requested workspace resource, context, pipeline, item, user, segment, experiment, or time range. Ask a concise clarification only when the target or intended change is ambiguous.
+1. Identify the requested workspace resource, context, pipeline, item, user, segment, experiment, or time range. For plan-limit cleanup or capacity questions, call `get_account_plan` first so the current plan and resolved limits are known. Ask a concise clarification only when the target or intended change is ambiguous.
 2. Inspect current state with list or get tools before making a recommendation or change.
 3. Prefer the most specific first-class tool for the task.
 4. Make changes only when the user explicitly asks for them. Verify the exact resource ID and current state first.
@@ -40,6 +40,7 @@ If a result unexpectedly contains a secret-like value, redact it and summarize t
 - Training: `list_training_jobs`, `get_training_job`, `create_training_job`, `cancel_training_job`.
 - Catalogue and ranking: `search_items`, `explain_ranking`.
 - Analytics: `get_ranking_metrics`, `get_user_analytics`, `get_item_analytics`, `compare_items`, `top_items`.
+- Account capacity: `get_account_plan` for the current plan, resolved resource limits, live usage, metered usage, and exact overages.
 - Administration: `list_event_types`, `create_event_type`, `update_event_type`, `delete_event_type`, `list_api_keys`, `revoke_api_key`, `list_integrations`.
 
 Do not invent unavailable tools or use an arbitrary HTTP or platform-API fallback.
@@ -67,6 +68,14 @@ Use stored experiment results by default. Call `refresh_experiment_results` only
 ### Work with API keys
 
 Show only masked key metadata returned by `list_api_keys`. The hosted plugin cannot create or reveal secret-bearing credentials. Revoke a key only when the user clearly identifies the intended key.
+
+### Clean up plan-limit overages
+
+1. Call `get_account_plan` before listing or changing resources. Treat its resolved limits as authoritative because they include subscription entitlements and workspace-specific overrides.
+2. Focus only on resources marked `OVER LIMIT`; do not infer limits from generic plan documentation.
+3. List and inspect those resources, preserving active or attached configuration when selecting cleanup candidates.
+4. Apply only the removals or deactivations the user requested, observing destructive-action confirmation rules.
+5. Call `get_account_plan` again and verify that every resource is at or below its resolved limit.
 
 ## Change safety
 
