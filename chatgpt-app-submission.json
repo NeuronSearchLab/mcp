@@ -48,6 +48,14 @@
         "destructive_justification": "Updating a context overwrites existing configuration and may change live recommendation behavior."
       }
     },
+    "delete_context": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
+      "justifications": {
+        "read_only_justification": "This tool permanently removes an existing recommendation context and its attached ranking configuration.",
+        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Deleting a context and its attached pipelines, rules, and feed blueprints cannot be undone."
+      }
+    },
     "list_pipelines": {
       "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
       "justifications": {

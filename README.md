@@ -94,7 +94,7 @@ Uses a NeuronSearchLab API key with the `admin` scope against the console API.
 
 Currently supported:
 - catalogue search and ranking debug: `search_items`, `explain_ranking`
-- contexts: `list_contexts`, `create_context`, `update_context`, `get_context`
+- contexts: `list_contexts`, `create_context`, `update_context`, `delete_context`, `get_context`
 - pipelines: `list_pipelines`, `create_pipeline`, `update_pipeline`, `delete_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `clone_pipeline`, `get_pipeline`
 - rules: `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `toggle_rule`, `enable_rule`, `disable_rule`, `get_rule`
 - segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`
@@ -390,6 +390,18 @@ Update an existing context.
 | `context_type` | enum | No | New context type |
 | `description` | string | No | New description |
 | `recommendation_type` | enum | No | New recommendation type |
+
+---
+
+### `delete_context`
+
+Permanently delete a context and its attached pipelines, rules, and feed blueprints.
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `context_id` | integer | Yes | The context ID to delete |
 
 ---
 

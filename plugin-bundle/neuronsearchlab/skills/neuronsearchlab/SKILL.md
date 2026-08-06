@@ -32,7 +32,7 @@ If a result unexpectedly contains a secret-like value, redact it and summarize t
 
 ## Tool selection
 
-- Contexts: `list_contexts`, `get_context`, `create_context`, `update_context`.
+- Contexts: `list_contexts`, `get_context`, `create_context`, `update_context`, `delete_context`.
 - Pipelines: `list_pipelines`, `get_pipeline`, `create_pipeline`, `update_pipeline`, `clone_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `delete_pipeline`.
 - Ranking rules: `list_rules`, `get_rule`, `create_rule`, `update_rule`, `enable_rule`, `disable_rule`, `toggle_rule`, `delete_rule`.
 - Segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`.
