@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 0.6.1
+
+### Patch Changes
+
+- 045d9bc: Expose the tenant-scoped `delete_context` tool in the hosted ChatGPT profile and route it to the public context deletion API.
+
 ## 0.6.0
 
 ### Minor Changes
