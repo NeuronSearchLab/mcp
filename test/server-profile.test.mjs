@@ -23,7 +23,7 @@ async function withClient(fakeClient, profile, callback) {
 test('hosted profile exposes first-class customer tools with explicit annotations', async () => {
   await withClient({}, 'hosted', async (client) => {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 51);
+    assert.equal(tools.length, 52);
 
     for (const tool of tools) {
       assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} readOnlyHint`);
@@ -38,6 +38,7 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     assert.equal(names.has('call_platform_api'), false);
     assert.equal(names.has('list_api_keys'), true);
     assert.equal(names.has('revoke_api_key'), true);
+    assert.equal(names.has('delete_context'), true);
 
     assert.equal(tools.find((tool) => tool.name === 'get_experiment_results')?.annotations?.readOnlyHint, true);
     assert.equal(tools.find((tool) => tool.name === 'refresh_experiment_results')?.annotations?.readOnlyHint, false);
@@ -45,6 +46,30 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     const training = tools.find((tool) => tool.name === 'create_training_job');
     assert.deepEqual(training?.inputSchema.required, ['template_id']);
     assert.equal(training?.annotations?.destructiveHint, true);
+  });
+});
+
+test('hosted context deletion calls the tenant-scoped platform route', async () => {
+  const calls = [];
+  const fakeClient = {
+    async delete(path) {
+      calls.push(['DELETE', path]);
+      return {
+        ok: true,
+        deleted: { context_id: 17, pipelines: 1, rules: 2, feed_blueprints: 1 },
+      };
+    },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const result = await client.callTool({
+      name: 'delete_context',
+      arguments: { context_id: 17 },
+    });
+    assert.deepEqual(calls, [['DELETE', '/api/context/17']]);
+    const text = result.content?.[0]?.text ?? '';
+    assert.match(text, /Context 17 deleted/);
+    assert.match(text, /1 pipeline\(s\), 2 rule\(s\), 1 feed blueprint\(s\)/);
   });
 });
 

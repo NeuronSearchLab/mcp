@@ -1816,6 +1816,7 @@ function getExportedTools(mode, profile) {
             'list_contexts',
             'create_context',
             'update_context',
+            'delete_context',
             'get_context',
             'list_pipelines',
             'create_pipeline',
@@ -2120,7 +2121,20 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     };
                 }
                 case 'delete_context': {
-                    return unsupportedAdminToolResponse(name, mode);
+                    if (mode !== 'internal')
+                        return unsupportedAdminToolResponse(name, mode);
+                    const input = DeleteContextInput.parse(args);
+                    const res = await client.delete(`/api/context/${input.context_id}`);
+                    const deleted = res?.deleted;
+                    const associated = deleted
+                        ? ` Associated configuration removed: ${deleted.pipelines ?? 0} pipeline(s), ${deleted.rules ?? 0} rule(s), ${deleted.feed_blueprints ?? 0} feed blueprint(s).`
+                        : '';
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `✅ Context ${input.context_id} deleted.${associated}`,
+                            }],
+                    };
                 }
                 case 'get_context': {
                     if (mode !== 'internal')
