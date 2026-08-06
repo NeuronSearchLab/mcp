@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 0.6.2
+
+### Patch Changes
+
+- dded1ac: Expose a hosted `get_account_plan` tool that reports the authenticated team's effective plan, resolved limits, live usage, and exact cleanup targets for over-limit resources.
+
 ## 0.6.1
 
 ### Patch Changes
