@@ -4,7 +4,7 @@
   "app_info": {
     "display_name": "NeuronSearchLab",
     "subtitle": "Manage recommendation systems",
-    "description": "Inspect and manage your NeuronSearchLab recommendation workspace from ChatGPT. Search catalogue items, understand rankings, configure contexts, pipelines, rules and segments, run experiments and model training, and review performance analytics.",
+    "description": "Inspect and manage your NeuronSearchLab recommendation workspace from ChatGPT. Check the effective account plan and usage limits, search catalogue items, understand rankings, configure contexts, pipelines, rules and segments, run experiments and model training, and review performance analytics.",
     "category": "DEVELOPER_TOOLS"
   },
   "tools": {
@@ -22,6 +22,14 @@
         "read_only_justification": "This tool retrieves a ranking explanation and score trace without changing stored data.",
         "open_world_justification": "It reads only ranking data in the authenticated NeuronSearchLab workspace.",
         "destructive_justification": "Generating an explanation has no destructive or persistent effect."
+      }
+    },
+    "get_account_plan": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "This tool retrieves the authenticated team's effective plan, resolved limits and current usage without modifying billing or workspace data.",
+        "open_world_justification": "It reads only plan and usage information for the authenticated NeuronSearchLab workspace.",
+        "destructive_justification": "Checking plan entitlements, limits and usage has no persistent or destructive effect."
       }
     },
     "list_contexts": {
@@ -426,6 +434,14 @@
     }
   },
   "test_cases": [
+    {
+      "description": "Resolve the customer's effective plan and identify exact resource overages before cleanup.",
+      "user_prompt": "Check which NeuronSearchLab plan I am on and tell me which resources need reducing to meet its limits.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_account_plan",
+      "expected_output": "The effective plan name, resolved per-resource limits, current usage, and exact reduction target for every resource over its limit.",
+      "expected_output_url": null
+    },
     {
       "description": "Inspect the recommendation surfaces configured for a customer workspace.",
       "user_prompt": "List my recommendation contexts and briefly explain what each one is for.",

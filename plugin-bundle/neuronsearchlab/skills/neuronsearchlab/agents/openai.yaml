@@ -2,7 +2,7 @@ interface:
   display_name: "NeuronSearchLab"
   short_description: "Manage NSL recommendations and analytics"
   brand_color: "#2563EB"
-  default_prompt: "Use $neuronsearchlab to review my recommendation contexts and active pipelines."
+  default_prompt: "Use $neuronsearchlab to check my current plan and usage limits, then review my recommendation contexts and active pipelines."
 
 dependencies:
   tools:

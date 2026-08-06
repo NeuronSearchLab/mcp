@@ -4,6 +4,7 @@ MCP (Model Context Protocol) server for [NeuronSearchLab](https://www.neuronsear
 
 ```
 "Get 5 recommendations for user alice@example.com"
+"Check my current plan and show which resources are over their limits"
 "Create a new context called Twitter Feed"
 "Add a pin rule so Nike items always appear in the top 3"
 "Why did item prod-456 rank first for bob?"
@@ -18,7 +19,7 @@ Two ways to run it:
 
 ## Connect to the hosted server (no install)
 
-The hosted endpoint runs a submission-safe customer administration profile. It includes first-class tools for ranking configuration, experiments, training, analytics, catalogue inspection, API-key inventory and revocation, integrations, and event types. Every hosted tool declares its OAuth requirement and requires the authenticated team's `admin` scope. Credential creation and the arbitrary platform API fallback remain available only to trusted local/internal clients so secrets, billing actions, and unbounded API calls are not exposed in ChatGPT. Keys minted through OAuth consent appear in [console → Security](https://console.neuronsearchlab.com/security) and can be revoked there anytime.
+The hosted endpoint runs a submission-safe customer administration profile. It includes first-class tools for plan and usage visibility, ranking configuration, experiments, training, analytics, catalogue inspection, API-key inventory and revocation, integrations, and event types. Every hosted tool declares its OAuth requirement and requires the authenticated team's `admin` scope. Credential creation, billing mutations, and the arbitrary platform API fallback remain available only to trusted local/internal clients so secrets, purchases, and unbounded API calls are not exposed in ChatGPT. Keys minted through OAuth consent appear in [console → Security](https://console.neuronsearchlab.com/security) and can be revoked there anytime.
 
 **claude.ai / Claude Desktop** — Settings → Connectors → Add custom connector → paste `https://console.neuronsearchlab.com/api/mcp` → **Connect**, then sign in to your NeuronSearchLab console and approve the scopes.
 
@@ -93,6 +94,7 @@ Supported:
 Uses a NeuronSearchLab API key with the `admin` scope against the console API.
 
 Currently supported:
+- account plan and limits: `get_account_plan` returns the effective plan, resolved limits, current usage, and exact overages
 - catalogue search and ranking debug: `search_items`, `explain_ranking`
 - contexts: `list_contexts`, `create_context`, `update_context`, `delete_context`, `get_context`
 - pipelines: `list_pipelines`, `create_pipeline`, `update_pipeline`, `delete_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `clone_pipeline`, `get_pipeline`

@@ -1,6 +1,6 @@
 {
   "name": "neuronsearchlab",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "Manage and analyze a NeuronSearchLab recommendation workspace.",
   "author": {
     "name": "NeuronSearchLab",
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "NeuronSearchLab",
     "shortDescription": "Manage recommendation systems",
-    "longDescription": "Inspect and manage your NeuronSearchLab recommendation workspace. Search catalogue items, explain rankings, configure contexts, pipelines, rules and segments, run experiments and training jobs, and review performance analytics.",
+    "longDescription": "Inspect and manage your NeuronSearchLab recommendation workspace. Check the effective account plan and usage limits, search catalogue items, explain rankings, configure contexts, pipelines, rules and segments, run experiments and training jobs, and review performance analytics.",
     "developerName": "NeuronSearchLab",
     "category": "Developer Tools",
     "capabilities": [
@@ -32,6 +32,7 @@
     "termsOfServiceURL": "https://console.neuronsearchlab.com/terms",
     "defaultPrompt": [
       "Explain why an item ranks for a user in my NSL workspace.",
+      "Check my current plan and show which resources exceed its limits.",
       "Review my recommendation contexts and active pipelines.",
       "Summarize the latest experiment and ranking metrics."
     ],

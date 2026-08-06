@@ -608,6 +608,94 @@ function formatRecommendations(res: any): string {
   return lines.join('\n');
 }
 
+const ACCOUNT_RESOURCE_LABELS: Record<string, string> = {
+  pipelines: 'Pipelines',
+  contexts: 'Contexts',
+  rules: 'Rules',
+  segments: 'Segments',
+  activeExperiments: 'Active experiments',
+  eventTypes: 'Event types',
+  apiKeys: 'Active API keys',
+  teamSeats: 'Team seats',
+  activeModelEndpoints: 'Active model endpoints',
+};
+
+const ACCOUNT_METERED_LABELS: Record<string, string> = {
+  requests: 'API requests',
+  explain: 'Ranking explanations',
+  training: 'Training jobs',
+  seats: 'Metered seats',
+};
+
+function formatAccountPlan(res: any): string {
+  const planId = String(res?.plan ?? 'unknown');
+  const plan = Array.isArray(res?.plans)
+    ? res.plans.find((candidate: any) => candidate?.id === planId)
+    : null;
+  const planName = String(plan?.name ?? planId);
+  const resourceLimits = res?.limits?.resources ?? {};
+  const resourceUsage = res?.usage?.resources ?? {};
+  const resourceKeys = Object.keys(resourceLimits);
+  const overages: string[] = [];
+
+  const lines = [
+    `Current plan: ${planName} (${planId})`,
+    '',
+    'Resource usage and resolved plan limits:',
+  ];
+
+  for (const key of resourceKeys) {
+    const label = ACCOUNT_RESOURCE_LABELS[key] ?? key;
+    const current = Number(resourceUsage[key] ?? 0);
+    const limit = Number(resourceLimits[key]);
+    if (limit < 0) {
+      lines.push(`- ${label} [${key}]: ${current} / unlimited — within limit`);
+      continue;
+    }
+
+    const excess = Math.max(0, current - limit);
+    if (excess > 0) {
+      lines.push(`- ${label} [${key}]: ${current} / ${limit} — OVER LIMIT by ${excess}`);
+      overages.push(`${key}: reduce by at least ${excess} (target ${limit} or fewer)`);
+    } else if (current === limit) {
+      lines.push(`- ${label} [${key}]: ${current} / ${limit} — at limit`);
+    } else {
+      lines.push(`- ${label} [${key}]: ${current} / ${limit} — ${limit - current} remaining`);
+    }
+  }
+
+  const meteredLimits = res?.limits?.metered ?? {};
+  const meteredUsage = res?.usage?.metered ?? {};
+  if (Object.keys(meteredLimits).length > 0) {
+    lines.push('', 'Current billing-period usage:');
+    for (const [key, rawLimit] of Object.entries(meteredLimits)) {
+      const limit = rawLimit as any;
+      const usage = meteredUsage[key] ?? {};
+      const included = Number(limit?.included ?? 0);
+      const used = Number(usage?.included_used ?? 0);
+      const overageUsed = Number(usage?.overage_used ?? 0);
+      const allowance = included < 0 ? 'unlimited' : String(included);
+      const enabled = limit?.enabled === false ? 'disabled on this plan' : `${overageUsed} overage`;
+      lines.push(`- ${ACCOUNT_METERED_LABELS[key] ?? key} [${key}]: ${used} / ${allowance}; ${enabled}`);
+    }
+  }
+
+  const period = res?.usage?.period;
+  if (period?.start) {
+    lines.push('', `Usage period: ${period.start}${period.end ? ` to ${period.end}` : ''}`);
+  }
+
+  lines.push('', 'Plan-limit cleanup summary:');
+  if (overages.length === 0) {
+    lines.push('- No count-based resources are over the resolved limits for this plan.');
+  } else {
+    for (const overage of overages) lines.push(`- ${overage}`);
+    lines.push('- Inspect the affected resources and preserve active or attached configuration when choosing what to remove.');
+  }
+
+  return lines.join('\n');
+}
+
 function formatList(label: string, items: any[], formatter: (item: any) => string): string {
   if (!items?.length) return `No ${label} found.`;
   const lines = [`Found ${items.length} ${label}:`, ''];
@@ -886,6 +974,13 @@ const TOOLS: Tool[] = [
   },
 
   // ── Platform management tools ───────────────────────────────────────
+  {
+    name: 'get_account_plan',
+    description:
+      'Get the authenticated team\'s current billing plan, resolved resource limits, live resource counts, metered usage, and exact overages. ' +
+      'Always call this first when the user asks to clean up plan-limit overages, reduce usage to plan limits, or check remaining capacity.',
+    inputSchema: { type: 'object', properties: {} },
+  },
   {
     name: 'list_contexts',
     description:
@@ -1777,6 +1872,7 @@ const TOOLS: Tool[] = [
 ];
 
 const ADMIN_TOOL_NAMES = new Set([
+  'get_account_plan',
   'list_contexts',
   'create_context',
   'update_context',
@@ -1874,6 +1970,7 @@ const TOOL_METADATA: Record<string, ToolMeta> = {
   delete_items: { title: 'Delete catalogue items', destructive: true },
   search_items: { title: 'Search catalogue', readOnly: true },
   explain_ranking: { title: 'Explain ranking', readOnly: true },
+  get_account_plan: { title: 'Get account plan and usage', readOnly: true },
   list_contexts: { title: 'List contexts', readOnly: true },
   create_context: { title: 'Create context' },
   update_context: { title: 'Update context', destructive: true },
@@ -1980,6 +2077,7 @@ function getExportedTools(mode: ServerMode, profile: ToolProfile) {
     return TOOLS.filter((tool) => [
       'search_items',
       'explain_ranking',
+      'get_account_plan',
       'list_contexts',
       'create_context',
       'update_context',
@@ -2266,6 +2364,12 @@ export function createServer(
         }
 
         // ── Context management ────────────────────────────────────────
+        case 'get_account_plan': {
+          if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
+          const res = await client.get<any>('/api/tier/limits');
+          return { content: [{ type: 'text', text: formatAccountPlan(res) }] };
+        }
+
         case 'list_contexts': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const res = await client.get<any>('/api/context');

@@ -23,7 +23,7 @@ async function withClient(fakeClient, profile, callback) {
 test('hosted profile exposes first-class customer tools with explicit annotations', async () => {
   await withClient({}, 'hosted', async (client) => {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 52);
+    assert.equal(tools.length, 53);
 
     for (const tool of tools) {
       assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} readOnlyHint`);
@@ -39,6 +39,7 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     assert.equal(names.has('list_api_keys'), true);
     assert.equal(names.has('revoke_api_key'), true);
     assert.equal(names.has('delete_context'), true);
+    assert.equal(names.has('get_account_plan'), true);
 
     assert.equal(tools.find((tool) => tool.name === 'get_experiment_results')?.annotations?.readOnlyHint, true);
     assert.equal(tools.find((tool) => tool.name === 'refresh_experiment_results')?.annotations?.readOnlyHint, false);
@@ -46,6 +47,62 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     const training = tools.find((tool) => tool.name === 'create_training_job');
     assert.deepEqual(training?.inputSchema.required, ['template_id']);
     assert.equal(training?.annotations?.destructiveHint, true);
+  });
+});
+
+test('hosted account plan tool reports resolved limits and exact cleanup targets', async () => {
+  const calls = [];
+  const fakeClient = {
+    async get(path) {
+      calls.push(['GET', path]);
+      return {
+        plan: 'basic',
+        plans: [{ id: 'basic', name: 'Basic' }],
+        limits: {
+          resources: {
+            pipelines: 2,
+            contexts: 5,
+            eventTypes: 10,
+            apiKeys: 5,
+            activeModelEndpoints: -1,
+          },
+          metered: {
+            requests: { included: 25000, enabled: true },
+            training: { included: 0, enabled: false },
+          },
+        },
+        usage: {
+          resources: {
+            pipelines: 2,
+            contexts: 9,
+            eventTypes: 17,
+            apiKeys: 5,
+            activeModelEndpoints: 3,
+          },
+          metered: {
+            requests: { included_used: 1200, overage_used: 0 },
+            training: { included_used: 0, overage_used: 0 },
+          },
+          period: {
+            start: '2026-08-01T00:00:00.000Z',
+            end: '2026-09-01T00:00:00.000Z',
+          },
+        },
+      };
+    },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const result = await client.callTool({ name: 'get_account_plan', arguments: {} });
+    assert.deepEqual(calls, [['GET', '/api/tier/limits']]);
+    const text = result.content?.[0]?.text ?? '';
+    assert.match(text, /Current plan: Basic \(basic\)/);
+    assert.match(text, /Contexts \[contexts\]: 9 \/ 5 — OVER LIMIT by 4/);
+    assert.match(text, /Event types \[eventTypes\]: 17 \/ 10 — OVER LIMIT by 7/);
+    assert.match(text, /Active API keys \[apiKeys\]: 5 \/ 5 — at limit/);
+    assert.match(text, /activeModelEndpoints\]: 3 \/ unlimited — within limit/);
+    assert.match(text, /contexts: reduce by at least 4 \(target 5 or fewer\)/);
+    assert.match(text, /eventTypes: reduce by at least 7 \(target 10 or fewer\)/);
   });
 });
 
