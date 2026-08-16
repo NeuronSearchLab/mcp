@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 0.6.3
+
+### Patch Changes
+
+- Expose recommendation tools in the hosted profile with accurate write annotations, OAuth metadata, and the supported console-bridge contract; preserve auto-feed section pagination output and validate distribution manifests against their live canonical schemas.
+
 ## 0.6.2
 
 ### Patch Changes

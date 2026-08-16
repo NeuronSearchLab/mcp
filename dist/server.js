@@ -3,7 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 const PACKAGE_VERSION = createRequire(import.meta.url)('../package.json').version ?? '0.0.0';
-export const HOSTED_PROFILE_VERSION = 1;
+export const HOSTED_PROFILE_VERSION = 2;
 // ─── Input schemas ────────────────────────────────────────────────────────────
 const GetRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
@@ -18,6 +18,21 @@ const GetAutoRecommendationsInput = z.object({
     cursor: z.string().optional().describe('Pagination cursor from a previous auto-recommendations response.'),
     window_days: z.number().int().min(1).optional().describe('Sliding window for "new" content in days.'),
 });
+// The hosted console bridge validates these parameters again before forwarding
+// them to the tenant-scoped recommendation worker.
+const HostedGetRecommendationsInput = z.object({
+    user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
+    context_id: z.string().optional().describe('Context ID from the NeuronSearchLab console.'),
+    limit: z.number().int().min(1).max(50).optional().describe('Number of recommendations to return (1–50).'),
+    surface: z.string().optional().describe('Rerank surface override (for example "homepage").'),
+}).strict();
+const HostedGetAutoRecommendationsInput = z.object({
+    user_id: z.string().describe('User identifier.'),
+    context_id: z.string().optional().describe('Context ID for additional filters.'),
+    limit: z.number().int().min(1).max(50).optional().describe('Items in the generated section (1–50).'),
+    cursor: z.string().min(1).max(2048).optional().describe('Pagination cursor returned by the previous section.'),
+    window_days: z.number().int().min(1).max(365).optional().describe('Sliding window for new content in days (1–365).'),
+}).strict();
 const TrackEventInput = z.object({
     event_id: z.number().int().describe('Numeric event type ID, as configured in the admin console (Events page).'),
     user_id: z.string().describe('User who triggered the event.'),
@@ -483,36 +498,43 @@ function formatPlatformApiResponse(method, path, res) {
     return `✅ ${label}\n\n${JSON.stringify(res, null, 2)}`;
 }
 function formatRecommendations(res) {
-    if (!res?.recommendations?.length) {
-        return 'No recommendations returned. This can happen if the user has no embedding yet or if all items have been excluded.';
+    const recommendations = Array.isArray(res?.recommendations)
+        ? res.recommendations
+        : Array.isArray(res?.data)
+            ? res.data
+            : [];
+    const lines = [];
+    if (recommendations.length === 0) {
+        lines.push('No recommendations returned. This can happen if the user has no embedding yet or if all items have been excluded.');
     }
-    const lines = [
-        `✅ ${res.recommendations.length} recommendation(s) for user:`,
-        `   request_id: ${res.request_id ?? 'n/a'} (pass to track_event for attribution)`,
-        `   processing_time: ${res.processing_time_ms ?? '?'}ms`,
-        '',
-    ];
-    for (const [i, rec] of res.recommendations.entries()) {
-        lines.push(`${i + 1}. [${rec.entity_id}] ${rec.name} (score: ${rec.score?.toFixed(4)})`);
-        if (rec.description) {
-            lines.push(`   ${rec.description.substring(0, 120)}${rec.description.length > 120 ? '...' : ''}`);
-        }
-        if (rec.metadata && Object.keys(rec.metadata).length > 0) {
-            const meta = Object.entries(rec.metadata)
-                .slice(0, 4)
-                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-                .join(', ');
-            lines.push(`   metadata: { ${meta}${Object.keys(rec.metadata).length > 4 ? ', ...' : ''} }`);
+    else {
+        lines.push(`✅ ${recommendations.length} recommendation(s) for user:`, `   request_id: ${res.request_id ?? 'n/a'} (pass to track_event for attribution)`, `   processing_time: ${res.processing_time_ms ?? '?'}ms`, '');
+        for (const [i, rec] of recommendations.entries()) {
+            const entityId = rec.entity_id ?? rec.item_id ?? rec.id ?? rec.item?.id ?? 'unknown';
+            const name = rec.name ?? rec.item?.name ?? 'Unnamed item';
+            lines.push(`${i + 1}. [${entityId}] ${name} (score: ${rec.score?.toFixed(4) ?? 'n/a'})`);
+            const description = rec.description ?? rec.item?.description;
+            if (description) {
+                lines.push(`   ${description.substring(0, 120)}${description.length > 120 ? '...' : ''}`);
+            }
+            const metadata = rec.metadata ?? rec.item?.metadata;
+            if (metadata && Object.keys(metadata).length > 0) {
+                const meta = Object.entries(metadata)
+                    .slice(0, 4)
+                    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                    .join(', ');
+                lines.push(`   metadata: { ${meta}${Object.keys(metadata).length > 4 ? ', ...' : ''} }`);
+            }
         }
     }
-    if (res.section) {
+    if (res?.section) {
         lines.push('', `📦 Section: "${res.section.title}" (id: ${res.section.section_id})`);
     }
-    if (res.next_cursor) {
-        lines.push('', `📄 More available — pass cursor: "${res.next_cursor}" to get_auto_recommendations`);
+    if (res?.next_cursor) {
+        lines.push('', `📄 next_cursor: "${res.next_cursor}"`);
     }
-    if (res.done) {
-        lines.push('', '✅ All sections returned (done: true)');
+    if (typeof res?.done === 'boolean') {
+        lines.push('', res.done ? '✅ All sections returned (done: true)' : '⏭️ More sections available (done: false)');
     }
     return lines.join('\n');
 }
@@ -1791,9 +1813,42 @@ const ADMIN_TOOL_NAMES = new Set([
 const HOSTED_SECURITY_SCHEMES = [
     { type: 'oauth2', scopes: ['admin'] },
 ];
+const HOSTED_RECOMMENDATION_CONTRACTS = {
+    get_recommendations: {
+        description: 'Fetch personalised recommendations for a user through the hosted console bridge. ' +
+            'Serving a result records attribution and metering data and returns a request_id for subsequent events.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                user_id: { type: 'string', description: 'User identifier (UUID, email, or numeric string).' },
+                context_id: { type: 'string', description: 'Context ID from the NeuronSearchLab console.' },
+                limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Number of items to return (1–50).' },
+                surface: { type: 'string', description: 'Optional rerank surface override.' },
+            },
+            required: ['user_id'],
+            additionalProperties: false,
+        },
+    },
+    get_auto_recommendations: {
+        description: 'Fetch one auto-generated recommendation section for a user through the hosted console bridge. ' +
+            'Serving a section records attribution and metering data and preserves section, next_cursor, and done response metadata.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                user_id: { type: 'string', description: 'User identifier.' },
+                context_id: { type: 'string', description: 'Optional context ID.' },
+                limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Items in the generated section (1–50).' },
+                cursor: { type: 'string', minLength: 1, maxLength: 2048, description: 'Cursor returned by the previous section.' },
+                window_days: { type: 'integer', minimum: 1, maximum: 365, description: 'Sliding window for new content in days.' },
+            },
+            required: ['user_id'],
+            additionalProperties: false,
+        },
+    },
+};
 const TOOL_METADATA = {
-    get_recommendations: { title: 'Get recommendations', readOnly: true },
-    get_auto_recommendations: { title: 'Get auto recommendations', readOnly: true },
+    get_recommendations: { title: 'Get recommendations' },
+    get_auto_recommendations: { title: 'Get auto recommendations' },
     track_event: { title: 'Track event', destructive: true },
     upsert_item: { title: 'Upsert catalogue item', destructive: true },
     patch_item: { title: 'Patch catalogue item' },
@@ -1870,8 +1925,10 @@ function decorateTool(tool, profile) {
     const meta = TOOL_METADATA[tool.name];
     if (!meta)
         return tool;
+    const hostedContract = profile === 'hosted' ? HOSTED_RECOMMENDATION_CONTRACTS[tool.name] : undefined;
     const decorated = {
         ...tool,
+        ...hostedContract,
         title: meta.title,
         annotations: {
             title: meta.title,
@@ -1898,9 +1955,11 @@ const HOSTED_EXCLUDED_TOOLS = new Set([
     'list_platform_routes',
     'call_platform_api',
 ]);
-function getExportedTools(mode, profile) {
+export function getExportedTools(mode, profile) {
     if (mode === 'internal') {
         return TOOLS.filter((tool) => [
+            'get_recommendations',
+            'get_auto_recommendations',
             'search_items',
             'explain_ranking',
             'get_account_plan',
@@ -1991,8 +2050,8 @@ export function createServer(client, mode = 'public', profile = 'default') {
             switch (name) {
                 // ── API tools ─────────────────────────────────────────────────
                 case 'get_recommendations': {
-                    const input = GetRecommendationsInput.parse(args);
-                    const res = await client.get('/recommendations', {
+                    const input = (profile === 'hosted' ? HostedGetRecommendationsInput : GetRecommendationsInput).parse(args);
+                    const res = await client.get(mode === 'internal' ? '/api/recommendations' : '/recommendations', {
                         user_id: input.user_id,
                         context_id: input.context_id,
                         quantity: input.limit,
@@ -2001,8 +2060,8 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     return { content: [{ type: 'text', text: formatRecommendations(res) }] };
                 }
                 case 'get_auto_recommendations': {
-                    const input = GetAutoRecommendationsInput.parse(args);
-                    const res = await client.get('/recommendations', {
+                    const input = (profile === 'hosted' ? HostedGetAutoRecommendationsInput : GetAutoRecommendationsInput).parse(args);
+                    const res = await client.get(mode === 'internal' ? '/api/recommendations' : '/recommendations', {
                         mode: 'auto',
                         user_id: input.user_id,
                         context_id: input.context_id,

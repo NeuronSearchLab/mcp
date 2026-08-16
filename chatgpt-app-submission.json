@@ -1,13 +1,29 @@
 {
-  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
   "schema_version": 1,
   "app_info": {
     "display_name": "NeuronSearchLab",
-    "subtitle": "Manage recommendation systems",
-    "description": "Inspect and manage your NeuronSearchLab recommendation workspace from ChatGPT. Check the effective account plan and usage limits, search catalogue items, understand rankings, configure contexts, pipelines, rules and segments, run experiments and model training, and review performance analytics.",
+    "subtitle": "Better recommendations",
+    "description": "Get personalized recommendations, search your catalogue, and understand why results rank the way they do. Start with a small OTT, ecommerce, news, or sports catalogue, then use ChatGPT to inspect and safely improve your NeuronSearchLab workspace.",
     "category": "DEVELOPER_TOOLS"
   },
   "tools": {
+    "get_recommendations": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "Serving ranked recommendations writes decision-attribution and usage-metering records, so this tool is not read-only.",
+        "open_world_justification": "It reads and writes only recommendation data in the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Serving recommendations does not delete or overwrite workspace configuration."
+      }
+    },
+    "get_auto_recommendations": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "Serving an automatic recommendation section writes decision-attribution and usage-metering records, so this tool is not read-only.",
+        "open_world_justification": "It reads and writes only recommendation data in the authenticated customer's NeuronSearchLab workspace.",
+        "destructive_justification": "Serving an automatic feed does not delete or overwrite workspace configuration."
+      }
+    },
     "search_items": {
       "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
       "justifications": {

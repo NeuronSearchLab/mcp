@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createServer, HOSTED_PROFILE_VERSION } from '../dist/server.js';
+import { createServer, getExportedTools, HOSTED_PROFILE_VERSION } from '../dist/server.js';
 
-assert.equal(HOSTED_PROFILE_VERSION, 1);
+assert.equal(HOSTED_PROFILE_VERSION, 2);
 
 async function withClient(fakeClient, profile, callback) {
   const server = createServer(fakeClient, 'internal', profile);
@@ -21,9 +22,15 @@ async function withClient(fakeClient, profile, callback) {
 }
 
 test('hosted profile exposes first-class customer tools with explicit annotations', async () => {
+  const rawHostedTools = getExportedTools('internal', 'hosted');
+  for (const tool of rawHostedTools) {
+    assert.deepEqual(tool.securitySchemes, [{ type: 'oauth2', scopes: ['admin'] }], `${tool.name} OAuth declaration`);
+    assert.deepEqual(tool._meta?.securitySchemes, [{ type: 'oauth2', scopes: ['admin'] }], `${tool.name} OAuth metadata mirror`);
+  }
+
   await withClient({}, 'hosted', async (client) => {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 53);
+    assert.equal(tools.length, 55);
 
     for (const tool of tools) {
       assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} readOnlyHint`);
@@ -40,13 +47,138 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     assert.equal(names.has('revoke_api_key'), true);
     assert.equal(names.has('delete_context'), true);
     assert.equal(names.has('get_account_plan'), true);
+    assert.equal(names.has('get_recommendations'), true);
+    assert.equal(names.has('get_auto_recommendations'), true);
 
     assert.equal(tools.find((tool) => tool.name === 'get_experiment_results')?.annotations?.readOnlyHint, true);
     assert.equal(tools.find((tool) => tool.name === 'refresh_experiment_results')?.annotations?.readOnlyHint, false);
 
+    for (const name of ['get_recommendations', 'get_auto_recommendations']) {
+      const recommendationTool = tools.find((tool) => tool.name === name);
+      assert.equal(recommendationTool?.annotations?.readOnlyHint, false, `${name} records serving attribution and metering`);
+      assert.equal(recommendationTool?.annotations?.destructiveHint, false, `${name} does not delete or overwrite configuration`);
+    }
+
+    const recommendations = tools.find((tool) => tool.name === 'get_recommendations');
+    assert.deepEqual(Object.keys(recommendations?.inputSchema.properties ?? {}).sort(), ['context_id', 'limit', 'surface', 'user_id']);
+    assert.equal(recommendations?.inputSchema.properties?.limit?.maximum, 50);
+
+    const autoRecommendations = tools.find((tool) => tool.name === 'get_auto_recommendations');
+    assert.deepEqual(Object.keys(autoRecommendations?.inputSchema.properties ?? {}).sort(), ['context_id', 'cursor', 'limit', 'user_id', 'window_days']);
+    assert.equal(autoRecommendations?.inputSchema.properties?.limit?.maximum, 50);
+
     const training = tools.find((tool) => tool.name === 'create_training_job');
     assert.deepEqual(training?.inputSchema.required, ['template_id']);
     assert.equal(training?.annotations?.destructiveHint, true);
+  });
+});
+
+test('marketplace submission annotations match the hosted runtime profile', () => {
+  const submission = JSON.parse(readFileSync(new URL('../chatgpt-app-submission.json', import.meta.url), 'utf8'));
+  const runtimeTools = new Map(getExportedTools('internal', 'hosted').map((tool) => [tool.name, tool]));
+
+  assert.equal(submission.$schema, 'https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json');
+  assert.ok([...submission.app_info.subtitle].length <= 30, 'marketplace subtitle must be at most 30 characters');
+  assert.deepEqual(Object.keys(submission.tools).sort(), [...runtimeTools.keys()].sort());
+
+  for (const [name, metadata] of Object.entries(submission.tools)) {
+    const runtime = runtimeTools.get(name);
+    assert.deepEqual(metadata.annotations, {
+      readOnlyHint: runtime?.annotations?.readOnlyHint,
+      openWorldHint: runtime?.annotations?.openWorldHint,
+      destructiveHint: runtime?.annotations?.destructiveHint,
+    }, `${name} submission annotations`);
+  }
+});
+
+test('hosted recommendation tools use the supported tenant-scoped console bridge contract', async () => {
+  const calls = [];
+  const fakeClient = {
+    async get(path, params) {
+      calls.push(['GET', path, params]);
+      return { request_id: 'req-1', recommendations: [{ item_id: 'item-1', score: 0.9 }] };
+    },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const result = await client.callTool({
+      name: 'get_recommendations',
+      arguments: { user_id: 'chatgpt-new-user', limit: 5 },
+    });
+    assert.deepEqual(calls, [[
+      'GET',
+      '/api/recommendations',
+      {
+        user_id: 'chatgpt-new-user',
+        context_id: undefined,
+        quantity: 5,
+        surface: undefined,
+      },
+    ]]);
+    assert.match(result.content?.[0]?.text ?? '', /req-1/);
+  });
+});
+
+test('hosted auto recommendations preserve section pagination response semantics', async () => {
+  const calls = [];
+  const fakeClient = {
+    async get(path, params) {
+      calls.push(['GET', path, params]);
+      return {
+        request_id: 'req-auto-1',
+        data: [{
+          id: 'item-1',
+          item_id: 'item-1',
+          item: { id: 'item-1', name: 'Item one', description: 'Current console response shape', metadata: {} },
+          score: 0.9,
+        }],
+        section: { section_id: 'trending', title: 'Trending now' },
+        next_cursor: 'cursor-2',
+        done: false,
+      };
+    },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const result = await client.callTool({
+      name: 'get_auto_recommendations',
+      arguments: { user_id: 'viewer-1', context_id: 'homepage', limit: 5, cursor: 'cursor-1', window_days: 14 },
+    });
+    assert.deepEqual(calls, [[
+      'GET',
+      '/api/recommendations',
+      {
+        mode: 'auto',
+        user_id: 'viewer-1',
+        context_id: 'homepage',
+        quantity: 5,
+        cursor: 'cursor-1',
+        window_days: 14,
+      },
+    ]]);
+    const text = result.content?.[0]?.text ?? '';
+    assert.match(text, /\[item-1\] Item one/);
+    assert.match(text, /Section: "Trending now" \(id: trending\)/);
+    assert.match(text, /next_cursor: "cursor-2"/);
+    assert.match(text, /done: false/);
+  });
+});
+
+test('hosted auto recommendations report terminal empty sections as done', async () => {
+  const fakeClient = {
+    async get() {
+      return { request_id: 'req-auto-done', data: [], section: null, next_cursor: null, done: true };
+    },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const result = await client.callTool({
+      name: 'get_auto_recommendations',
+      arguments: { user_id: 'viewer-1' },
+    });
+    const text = result.content?.[0]?.text ?? '';
+    assert.match(text, /No recommendations returned/);
+    assert.match(text, /done: true/);
   });
 });
 
@@ -138,6 +270,9 @@ test('default internal profile retains trusted local-only tools', async () => {
     assert.equal(names.has('list_platform_routes'), true);
     assert.equal(names.has('call_platform_api'), true);
     assert.equal(tools.some((tool) => tool._meta?.securitySchemes), false);
+    assert.equal(tools.find((tool) => tool.name === 'get_recommendations')?.inputSchema.properties?.surface?.type, 'string');
+    assert.equal(tools.find((tool) => tool.name === 'get_auto_recommendations')?.inputSchema.properties?.cursor?.type, 'string');
+    assert.equal(tools.find((tool) => tool.name === 'get_auto_recommendations')?.inputSchema.properties?.window_days?.type, 'number');
   });
 });
 
