@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 1.0.0
+
+### Major Changes
+
+- 5f91761: Require dashboard-created integer event and context IDs and NSL-generated integer item IDs across recommendation and event tools.
+
 ## 0.6.3
 
 ### Patch Changes
