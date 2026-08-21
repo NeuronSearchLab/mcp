@@ -19,14 +19,14 @@ export const HOSTED_PROFILE_VERSION = 2;
 
 const GetRecommendationsInput = z.object({
   user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
-  context_id: z.string().optional().describe('Context ID from the NeuronSearchLab console (controls filters, grouping, and quantity defaults).'),
+  context_id: z.number().int().positive().optional().describe('Integer context ID from the NeuronSearchLab console.'),
   limit: z.number().int().min(1).max(200).optional().describe('Number of recommendations to return. Defaults to the context default (usually 20).'),
   surface: z.string().optional().describe('Rerank surface override (e.g. "homepage", "sidebar").'),
 });
 
 const GetAutoRecommendationsInput = z.object({
   user_id: z.string().describe('User identifier.'),
-  context_id: z.string().optional().describe('Context ID for additional filters.'),
+  context_id: z.number().int().positive().optional().describe('Integer context ID for additional filters.'),
   limit: z.number().int().min(1).max(200).optional().describe('Items per auto-generated section. Defaults to context value.'),
   cursor: z.string().optional().describe('Pagination cursor from a previous auto-recommendations response.'),
   window_days: z.number().int().min(1).optional().describe('Sliding window for "new" content in days.'),
@@ -36,41 +36,40 @@ const GetAutoRecommendationsInput = z.object({
 // them to the tenant-scoped recommendation worker.
 const HostedGetRecommendationsInput = z.object({
   user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
-  context_id: z.string().optional().describe('Context ID from the NeuronSearchLab console.'),
+  context_id: z.number().int().positive().optional().describe('Integer context ID from the NeuronSearchLab console.'),
   limit: z.number().int().min(1).max(50).optional().describe('Number of recommendations to return (1–50).'),
   surface: z.string().optional().describe('Rerank surface override (for example "homepage").'),
 }).strict();
 
 const HostedGetAutoRecommendationsInput = z.object({
   user_id: z.string().describe('User identifier.'),
-  context_id: z.string().optional().describe('Context ID for additional filters.'),
+  context_id: z.number().int().positive().optional().describe('Integer context ID for additional filters.'),
   limit: z.number().int().min(1).max(50).optional().describe('Items in the generated section (1–50).'),
   cursor: z.string().min(1).max(2048).optional().describe('Pagination cursor returned by the previous section.'),
   window_days: z.number().int().min(1).max(365).optional().describe('Sliding window for new content in days (1–365).'),
 }).strict();
 
 const TrackEventInput = z.object({
-  event_id: z.number().int().describe('Numeric event type ID, as configured in the admin console (Events page).'),
+  event_id: z.number().int().refine(value => value !== 0).describe('Non-zero integer event type ID, as configured in the admin console (Events page).'),
   user_id: z.string().describe('User who triggered the event.'),
-  item_id: z.string().describe('Item that was interacted with.'),
+  item_id: z.number().int().positive().describe('Integer item ID returned by NSL ingestion.'),
   request_id: z.string().optional().describe('request_id from the recommendations response that led to this event — enables attribution.'),
   session_id: z.string().optional().describe('Session identifier for grouping events within a visit.'),
 });
 
 const UpsertItemInput = z.object({
-  item_id: z.string().describe('Unique item identifier (UUID or alphanumeric string).'),
   name: z.string().describe('Item title or display name.'),
   description: z.string().describe('Longer text used to generate the embedding — include keywords, category, and key attributes.'),
   metadata: z.record(z.unknown()).optional().describe('Arbitrary key-value pairs (category, price, tags, etc.) returned alongside recommendations.'),
 });
 
 const PatchItemInput = z.object({
-  item_id: z.string().describe('Item to update.'),
+  item_id: z.number().int().positive().describe('Integer item ID returned by NSL ingestion.'),
   active: z.boolean().optional().describe('Set to false to exclude the item from future recommendations without deleting it.'),
 }).passthrough();
 
 const DeleteItemsInput = z.object({
-  item_ids: z.array(z.string()).min(1).max(100).describe('One or more item IDs to permanently remove from the catalogue.'),
+  item_ids: z.array(z.number().int().positive()).min(1).max(100).describe('One or more NSL-generated integer item IDs to permanently remove.'),
 });
 
 const SearchItemsInput = z.object({
@@ -79,9 +78,9 @@ const SearchItemsInput = z.object({
 });
 
 const ExplainRankingInput = z.object({
-  item_id: z.string().describe('Item whose ranking you want to understand.'),
+  item_id: z.number().int().positive().describe('NSL-generated integer item ID to explain.'),
   user_id: z.string().optional().describe('User to score against. Omit for a neutral baseline score.'),
-  context_id: z.string().optional().describe('Context ID to apply scoring rules from.'),
+  context_id: z.number().int().positive().optional().describe('Integer context ID to apply scoring rules from.'),
 });
 
 // ─── Platform management schemas ──────────────────────────────────────────────
@@ -95,7 +94,7 @@ const CreateContextInput = z.object({
 });
 
 const UpdateContextInput = z.object({
-  context_id: z.number().int().describe('The context ID to update.'),
+  context_id: z.number().int().positive().describe('The context ID to update.'),
   context_name: z.string().min(1).optional().describe('New display name.'),
   context_type: z.enum(['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising']).optional(),
   description: z.string().optional(),
@@ -103,13 +102,13 @@ const UpdateContextInput = z.object({
 });
 
 const DeleteContextInput = z.object({
-  context_id: z.number().int().describe('The context ID to delete.'),
+  context_id: z.number().int().positive().describe('The context ID to delete.'),
 });
 
 const CreatePipelineInput = z.object({
   name: z.string().min(1).describe('Pipeline display name.'),
   description: z.string().optional().describe('Optional description.'),
-  context_id: z.number().int().optional().describe('Context ID to attach this pipeline to.'),
+  context_id: z.number().int().positive().optional().describe('Context ID to attach this pipeline to.'),
   is_active: z.boolean().default(true).describe('Whether the pipeline is active.'),
 });
 
@@ -117,7 +116,7 @@ const UpdatePipelineInput = z.object({
   pipeline_id: z.number().int().describe('The pipeline ID to update.'),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  context_id: z.number().int().optional(),
+  context_id: z.number().int().positive().optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -126,11 +125,11 @@ const DeletePipelineInput = z.object({
 });
 
 const ListRulesInput = z.object({
-  context_id: z.number().int().optional().describe('Optional context ID to filter rules.'),
+  context_id: z.number().int().positive().optional().describe('Optional context ID to filter rules.'),
 });
 
 const CreateRuleInput = z.object({
-  context_id: z.number().int().optional().describe('Context ID to scope this rule to.'),
+  context_id: z.number().int().positive().optional().describe('Context ID to scope this rule to.'),
   name: z.string().min(1).describe('Rule display name.'),
   description: z.string().optional().describe('Rule description.'),
   priority: z.number().int().min(0).max(1000).default(100).describe('Priority (higher = evaluated first).'),
@@ -183,7 +182,7 @@ const ToggleRuleInput = z.object({
 // ─── Additional pipeline / rule / context schemas ─────────────────────────────
 
 const GetContextInput = z.object({
-  context_id: z.number().int().describe('The context ID to retrieve.'),
+  context_id: z.number().int().positive().describe('The context ID to retrieve.'),
 });
 
 const GetPipelineInput = z.object({
@@ -217,7 +216,7 @@ const DisableRuleInput = z.object({
 
 const ReorderRulesInput = z.object({
   rule_ids: z.array(z.number().int()).min(1).describe('Rule IDs in the desired priority order (first = highest priority).'),
-  context_id: z.number().int().optional().describe('Optional context ID to scope the reorder.'),
+  context_id: z.number().int().positive().optional().describe('Optional context ID to scope the reorder.'),
 });
 
 // ─── Segment schemas ──────────────────────────────────────────────────────────
@@ -370,7 +369,7 @@ const CancelTrainingJobInput = z.object({
 
 const GetRankingMetricsInput = z.object({
   pipeline_id: z.number().int().optional().describe('Filter metrics to a specific pipeline.'),
-  context_id: z.number().int().optional().describe('Filter metrics to a specific context.'),
+  context_id: z.number().int().positive().optional().describe('Filter metrics to a specific context.'),
   window: z.enum(['1d', '7d', '30d']).default('7d').describe('Time window for aggregation.'),
 });
 
@@ -385,28 +384,28 @@ const GetSegmentMetricsInput = z.object({
 
 const GetUserAnalyticsInput = z.object({
   user_id: z.string().min(1).describe('The user ID or email to inspect.'),
-  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  context_id: z.number().int().positive().optional().describe('Optional integer context ID to scope the analytics.'),
   window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
 });
 
 const GetItemAnalyticsInput = z.object({
-  item_id: z.string().min(1).describe('The item ID to inspect.'),
-  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  item_id: z.number().int().positive().describe('The NSL-generated integer item ID to inspect.'),
+  context_id: z.number().int().positive().optional().describe('Optional integer context ID to scope the analytics.'),
   window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
 });
 
 const CompareItemsInput = z.object({
-  item_a_id: z.string().min(1).describe('The first item ID to compare.'),
-  item_b_id: z.string().min(1).describe('The second item ID to compare.'),
-  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  item_a_id: z.number().int().positive().describe('The first NSL-generated integer item ID to compare.'),
+  item_b_id: z.number().int().positive().describe('The second NSL-generated integer item ID to compare.'),
+  context_id: z.number().int().positive().optional().describe('Optional integer context ID to scope the analytics.'),
   window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
 });
 
 const TopItemsInput = z.object({
   metric: z.enum(['served', 'events']).default('served').describe('Whether to rank by served count or event count.'),
   event_name: z.string().optional().describe('Optional event-name filter when metric=events, for example "watch" or "click".'),
-  event_id: z.number().int().optional().describe('Optional numeric event ID filter when metric=events.'),
-  context_id: z.string().optional().describe('Optional context ID to scope the analytics.'),
+  event_id: z.number().int().refine(value => value !== 0).optional().describe('Optional non-zero integer event ID filter when metric=events.'),
+  context_id: z.number().int().positive().optional().describe('Optional integer context ID to scope the analytics.'),
   window: z.enum(['1d', '7d', '30d', '90d']).default('7d').describe('Time window.'),
   limit: z.number().int().min(1).max(50).default(10).describe('Maximum items to return.'),
 });
@@ -736,8 +735,8 @@ function formatEventBreakdown(rows: Array<{ event_name: string; count: number }>
   return rows.map((row) => `  ${row.event_name}: ${row.count}`).join('\n');
 }
 
-function formatItemAnalytics(res: any, itemId: string) {
-  const itemLabel = res?.item?.name ? `${res.item.name} (${itemId})` : itemId;
+function formatItemAnalytics(res: any, itemId: number) {
+  const itemLabel = res?.item?.name ? `${res.item.name} (${itemId})` : String(itemId);
   const lines = [
     `Item analytics for ${itemLabel}`,
     `Window: ${res?.window ?? '7d'}`,
@@ -872,7 +871,7 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         user_id: { type: 'string', description: 'User identifier (UUID, email, or numeric string).' },
-        context_id: { type: 'string', description: 'Context ID from the NeuronSearchLab console.' },
+        context_id: { type: 'integer', description: 'Integer context ID from the NeuronSearchLab console.' },
         limit: { type: 'number', description: 'Number of items to return (1–200).' },
         surface: { type: 'string', description: 'Rerank surface override (e.g. "homepage").' },
       },
@@ -889,7 +888,7 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         user_id: { type: 'string', description: 'User identifier.' },
-        context_id: { type: 'string', description: 'Optional context ID.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID.' },
         limit: { type: 'number', description: 'Items per section (1–200).' },
         cursor: { type: 'string', description: 'Pagination cursor from a previous response.' },
         window_days: { type: 'number', description: 'Days to look back for new content.' },
@@ -906,9 +905,9 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        event_id: { type: 'number', description: 'Numeric event type ID from the admin console.' },
+        event_id: { type: 'integer', description: 'Integer event type ID from the admin console.' },
         user_id: { type: 'string', description: 'User who triggered the event.' },
-        item_id: { type: 'string', description: 'Item that was interacted with.' },
+        item_id: { type: 'integer', description: 'Integer item ID returned by NSL ingestion.' },
         request_id: { type: 'string', description: 'request_id from the recommendations response (for attribution).' },
         session_id: { type: 'string', description: 'Session identifier.' },
       },
@@ -924,7 +923,6 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        item_id: { type: 'string', description: 'Unique item identifier.' },
         name: { type: 'string', description: 'Item display name.' },
         description: { type: 'string', description: 'Rich description for embedding generation.' },
         metadata: {
@@ -933,7 +931,7 @@ const TOOLS: Tool[] = [
           additionalProperties: true,
         },
       },
-      required: ['item_id', 'name', 'description'],
+      required: ['name', 'description'],
     },
   },
   {
@@ -945,7 +943,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        item_id: { type: 'string', description: 'Item to update.' },
+        item_id: { type: 'integer', description: 'NSL-generated integer item ID to update.' },
         active: { type: 'boolean', description: 'Set false to exclude from recommendations without deleting.' },
       },
       required: ['item_id'],
@@ -962,7 +960,7 @@ const TOOLS: Tool[] = [
       properties: {
         item_ids: {
           type: 'array',
-          items: { type: 'string' },
+          items: { type: 'integer' },
           description: 'List of item IDs to delete (max 100 per call).',
         },
       },
@@ -993,9 +991,9 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        item_id: { type: 'string', description: 'Item to explain.' },
+        item_id: { type: 'integer', description: 'NSL-generated integer item ID to explain.' },
         user_id: { type: 'string', description: 'User to score against. Omit for a neutral baseline.' },
-        context_id: { type: 'string', description: 'Context ID to apply scoring rules from.' },
+        context_id: { type: 'integer', description: 'Integer context ID to apply scoring rules from.' },
       },
       required: ['item_id'],
     },
@@ -1048,7 +1046,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        context_id: { type: 'number', description: 'The context ID to update.' },
+        context_id: { type: 'integer', description: 'The context ID to update.' },
         context_name: { type: 'string', description: 'New display name.' },
         context_type: {
           type: 'string',
@@ -1069,7 +1067,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        context_id: { type: 'number', description: 'The context ID to delete.' },
+        context_id: { type: 'integer', description: 'The context ID to delete.' },
       },
       required: ['context_id'],
     },
@@ -1092,7 +1090,7 @@ const TOOLS: Tool[] = [
       properties: {
         name: { type: 'string', description: 'Pipeline display name.' },
         description: { type: 'string', description: 'Optional description.' },
-        context_id: { type: 'number', description: 'Context ID to attach this pipeline to.' },
+        context_id: { type: 'integer', description: 'Context ID to attach this pipeline to.' },
         is_active: { type: 'boolean', description: 'Whether the pipeline is active. Default: true.' },
       },
       required: ['name'],
@@ -1107,7 +1105,7 @@ const TOOLS: Tool[] = [
         pipeline_id: { type: 'number', description: 'The pipeline ID to update.' },
         name: { type: 'string', description: 'New pipeline name.' },
         description: { type: 'string' },
-        context_id: { type: 'number', description: 'New context ID to attach.' },
+        context_id: { type: 'integer', description: 'New context ID to attach.' },
         is_active: { type: 'boolean' },
       },
       required: ['pipeline_id'],
@@ -1132,7 +1130,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        context_id: { type: 'number', description: 'Optional context ID to filter rules.' },
+        context_id: { type: 'integer', description: 'Optional context ID to filter rules.' },
       },
     },
   },
@@ -1146,7 +1144,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        context_id: { type: 'number', description: 'Context ID to scope this rule to.' },
+        context_id: { type: 'integer', description: 'Context ID to scope this rule to.' },
         name: { type: 'string', description: 'Rule display name.' },
         description: { type: 'string', description: 'Rule description.' },
         priority: { type: 'number', description: 'Priority (0–1000, higher = first). Default: 100.' },
@@ -1258,7 +1256,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        context_id: { type: 'number', description: 'The context ID to retrieve.' },
+        context_id: { type: 'integer', description: 'The context ID to retrieve.' },
       },
       required: ['context_id'],
     },
@@ -1356,7 +1354,7 @@ const TOOLS: Tool[] = [
           items: { type: 'number' },
           description: 'Rule IDs in descending priority order (first = highest priority).',
         },
-        context_id: { type: 'number', description: 'Optional context ID to scope the reorder.' },
+        context_id: { type: 'integer', description: 'Optional context ID to scope the reorder.' },
       },
       required: ['rule_ids'],
     },
@@ -1694,7 +1692,7 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         pipeline_id: { type: 'number', description: 'Filter metrics to a specific pipeline.' },
-        context_id: { type: 'number', description: 'Filter metrics to a specific context.' },
+        context_id: { type: 'integer', description: 'Filter metrics to a specific context.' },
         window: { type: 'string', enum: ['1d', '7d', '30d'], description: 'Time window. Default: 7d.' },
       },
     },
@@ -1729,7 +1727,7 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         user_id: { type: 'string', description: 'The user ID or email to inspect.' },
-        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID to scope the analytics.' },
         window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
       },
       required: ['user_id'],
@@ -1741,8 +1739,8 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        item_id: { type: 'string', description: 'The item ID to inspect.' },
-        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        item_id: { type: 'integer', description: 'The NSL-generated integer item ID to inspect.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID to scope the analytics.' },
         window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
       },
       required: ['item_id'],
@@ -1754,9 +1752,9 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        item_a_id: { type: 'string', description: 'The first item ID to compare.' },
-        item_b_id: { type: 'string', description: 'The second item ID to compare.' },
-        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        item_a_id: { type: 'integer', description: 'The first NSL-generated integer item ID to compare.' },
+        item_b_id: { type: 'integer', description: 'The second NSL-generated integer item ID to compare.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID to scope the analytics.' },
         window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
       },
       required: ['item_a_id', 'item_b_id'],
@@ -1770,8 +1768,8 @@ const TOOLS: Tool[] = [
       properties: {
         metric: { type: 'string', enum: ['served', 'events'], description: 'Rank by served count or by event count. Default: served. Use "events" when the user explicitly asks about a specific engagement signal such as watch, click, or view.' },
         event_name: { type: 'string', description: 'Optional event-name filter when metric=events, for example "watch".' },
-        event_id: { type: 'number', description: 'Optional numeric event ID filter when metric=events.' },
-        context_id: { type: 'string', description: 'Optional context ID to scope the analytics.' },
+        event_id: { type: 'integer', description: 'Optional integer event ID filter when metric=events.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID to scope the analytics.' },
         window: { type: 'string', enum: ['1d', '7d', '30d', '90d'], description: 'Time window. Default: 7d.' },
         limit: { type: 'number', description: 'Maximum number of items to return (1-50). Default: 10.' },
       },
@@ -1845,7 +1843,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        event_id: { type: 'string', description: 'The event type ID to update.' },
+        event_id: { type: 'integer', description: 'The integer event type ID to update.' },
         event_name: { type: 'string', description: 'New display name.' },
         value: { type: 'number', description: 'New weight/importance (0–100).' },
       },
@@ -1860,7 +1858,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        event_id: { type: 'string', description: 'The event type ID to delete.' },
+        event_id: { type: 'integer', description: 'The integer event type ID to delete.' },
       },
       required: ['event_id'],
     },
@@ -1998,7 +1996,7 @@ const HOSTED_RECOMMENDATION_CONTRACTS: Record<string, Pick<Tool, 'description' |
       type: 'object',
       properties: {
         user_id: { type: 'string', description: 'User identifier (UUID, email, or numeric string).' },
-        context_id: { type: 'string', description: 'Context ID from the NeuronSearchLab console.' },
+        context_id: { type: 'integer', description: 'Integer context ID from the NeuronSearchLab console.' },
         limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Number of items to return (1–50).' },
         surface: { type: 'string', description: 'Optional rerank surface override.' },
       },
@@ -2014,7 +2012,7 @@ const HOSTED_RECOMMENDATION_CONTRACTS: Record<string, Pick<Tool, 'description' |
       type: 'object',
       properties: {
         user_id: { type: 'string', description: 'User identifier.' },
-        context_id: { type: 'string', description: 'Optional context ID.' },
+        context_id: { type: 'integer', description: 'Optional integer context ID.' },
         limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Items in the generated section (1–50).' },
         cursor: { type: 'string', minLength: 1, maxLength: 2048, description: 'Cursor returned by the previous section.' },
         window_days: { type: 'integer', minimum: 1, maximum: 365, description: 'Sliding window for new content in days.' },
@@ -2275,9 +2273,9 @@ export function createServer(
         case 'track_event': {
           const input = TrackEventInput.parse(args);
           const res = await client.post('/events', {
-            eventId: input.event_id,
-            userId: input.user_id,
-            itemId: input.item_id,
+            event_id: input.event_id,
+            user_id: input.user_id,
+            item_id: input.item_id,
             ...(input.request_id && { request_id: input.request_id }),
             ...(input.session_id && { session_id: input.session_id }),
             client_ts: new Date().toISOString(),
@@ -2293,7 +2291,6 @@ export function createServer(
         case 'upsert_item': {
           const input = UpsertItemInput.parse(args);
           const res = await client.post('/items', {
-            itemId: input.item_id,
             name: input.name,
             description: input.description,
             metadata: input.metadata ?? {},
@@ -2301,7 +2298,7 @@ export function createServer(
           return {
             content: [{
               type: 'text',
-              text: `✅ Item upserted.\n${JSON.stringify(res, null, 2)}`,
+              text: `✅ Item ingested with an NSL-generated integer ID.\n${JSON.stringify(res, null, 2)}`,
             }],
           };
         }
@@ -3115,7 +3112,7 @@ export function createServer(
 
         case 'update_event_type': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
-          const eventId = String((args as any).event_id);
+          const eventId = Number((args as any).event_id);
           const updName = String((args as any).event_name);
           const updValue = Number((args as any).value);
           await client.put<any>(`/api/events/event-types/${eventId}`, { event_name: updName, value: updValue });
@@ -3124,7 +3121,7 @@ export function createServer(
 
         case 'delete_event_type': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
-          const delId = String((args as any).event_id);
+          const delId = Number((args as any).event_id);
           await client.delete(`/api/events/event-types/${delId}`);
           return { content: [{ type: 'text', text: `✅ Event type ${delId} deleted.` }] };
         }

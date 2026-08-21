@@ -73,7 +73,7 @@ embedding_info:
   "arguments": {
     "event_id": 1766959653422574,
     "user_id": "test-user-mcp",
-    "item_id": "26735c44-d5b0-4d64-968c-2a691ae8f0d8",
+    "item_id": 3187,
     "request_id": "ae5ef21b-077a-416f-96af-55d1f99e0bf0"
   }
 }
