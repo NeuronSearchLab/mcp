@@ -96,7 +96,7 @@ test('hosted recommendation tools use the supported tenant-scoped console bridge
   const fakeClient = {
     async get(path, params) {
       calls.push(['GET', path, params]);
-      return { request_id: 'req-1', recommendations: [{ item_id: 'item-1', score: 0.9 }] };
+      return { request_id: 'req-1', recommendations: [{ item_id: 1001, score: 0.9 }] };
     },
   };
 
@@ -127,9 +127,9 @@ test('hosted auto recommendations preserve section pagination response semantics
       return {
         request_id: 'req-auto-1',
         data: [{
-          id: 'item-1',
-          item_id: 'item-1',
-          item: { id: 'item-1', name: 'Item one', description: 'Current console response shape', metadata: {} },
+          id: 1001,
+          item_id: 1001,
+          item: { id: 1001, name: 'Item one', description: 'Current console response shape', metadata: {} },
           score: 0.9,
         }],
         section: { section_id: 'trending', title: 'Trending now' },
@@ -142,7 +142,7 @@ test('hosted auto recommendations preserve section pagination response semantics
   await withClient(fakeClient, 'hosted', async (client) => {
     const result = await client.callTool({
       name: 'get_auto_recommendations',
-      arguments: { user_id: 'viewer-1', context_id: 'homepage', limit: 5, cursor: 'cursor-1', window_days: 14 },
+      arguments: { user_id: 'viewer-1', context_id: 236, limit: 5, cursor: 'cursor-1', window_days: 14 },
     });
     assert.deepEqual(calls, [[
       'GET',
@@ -150,14 +150,14 @@ test('hosted auto recommendations preserve section pagination response semantics
       {
         mode: 'auto',
         user_id: 'viewer-1',
-        context_id: 'homepage',
+        context_id: 236,
         quantity: 5,
         cursor: 'cursor-1',
         window_days: 14,
       },
     ]]);
     const text = result.content?.[0]?.text ?? '';
-    assert.match(text, /\[item-1\] Item one/);
+    assert.match(text, /\[1001\] Item one/);
     assert.match(text, /Section: "Trending now" \(id: trending\)/);
     assert.match(text, /next_cursor: "cursor-2"/);
     assert.match(text, /done: false/);
