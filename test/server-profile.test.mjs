@@ -88,7 +88,7 @@ test('marketplace submission annotations match the hosted runtime profile', () =
     'render_demo_recommendations',
   ];
 
-  assert.equal(submission.$schema, 'https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json');
+  assert.equal(submission.$schema, 'https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json');
   assert.ok([...submission.app_info.subtitle].length <= 30, 'marketplace subtitle must be at most 30 characters');
   assert.deepEqual(
     Object.keys(submission.tools).sort(),

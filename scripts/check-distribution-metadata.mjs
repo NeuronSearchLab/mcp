@@ -4,7 +4,12 @@ import Ajv from 'ajv';
 import Ajv2020 from 'ajv/dist/2020.js';
 
 const SERVER_SCHEMA_ID = 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json';
-const CHATGPT_SUBMISSION_SCHEMA_ID = 'https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json';
+// The submission form requires the apps-sdk URL. That path 301-redirects to the
+// older /plugins/ path, and the schema document served there still declares the
+// /plugins/ $id, so the fetched document is checked against the redirect target
+// rather than the URL we declare.
+const CHATGPT_SUBMISSION_SCHEMA_ID = 'https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json';
+const CHATGPT_SUBMISSION_SCHEMA_CANONICAL_ID = 'https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const server = JSON.parse(readFileSync(new URL('../server.json', import.meta.url), 'utf8'));
@@ -42,7 +47,22 @@ if (submission.$schema !== CHATGPT_SUBMISSION_SCHEMA_ID) {
   errors.push(`chatgpt-app-submission.json $schema must use the canonical ID ${CHATGPT_SUBMISSION_SCHEMA_ID}`);
 }
 
-async function validateAgainstLiveSchema(name, document, schemaId) {
+// OpenAI's submission form rejects the /plugins/ URL and requires the apps-sdk
+// one, but the published schema still pins $schema to the old value with a
+// const and lists it as required. The form is what gates submission, so the URL
+// we declare is asserted separately above and the stale const is dropped before
+// the rest of the document is validated.
+function relaxSubmissionSchema(schema) {
+  const { $schema: _staleConst, ...properties } = schema.properties ?? {};
+  return {
+    ...schema,
+    properties,
+    required: (schema.required ?? []).filter((field) => field !== '$schema'),
+  };
+}
+
+async function validateAgainstLiveSchema(name, document, schemaId, options = {}) {
+  const { canonicalId = schemaId, transform = (schema) => schema } = options;
   try {
     const response = await fetch(schemaId, { headers: { Accept: 'application/schema+json, application/json' } });
     if (!response.ok) {
@@ -51,14 +71,14 @@ async function validateAgainstLiveSchema(name, document, schemaId) {
     }
 
     const schema = await response.json();
-    if (schema?.$id !== schemaId) {
-      errors.push(`${name}: live schema $id ${schema?.$id ?? '<missing>'} does not match ${schemaId}`);
+    if (schema?.$id !== canonicalId) {
+      errors.push(`${name}: live schema $id ${schema?.$id ?? '<missing>'} does not match ${canonicalId}`);
       return;
     }
 
     const AjvClass = schema.$schema?.includes('2020-12') ? Ajv2020 : Ajv;
     const ajv = new AjvClass({ allErrors: true, strict: false, validateFormats: false });
-    const validate = ajv.compile(schema);
+    const validate = ajv.compile(transform(schema));
     if (!validate(document)) {
       for (const error of validate.errors ?? []) {
         errors.push(`${name}${error.instancePath || '/'} ${error.message}`);
@@ -71,7 +91,10 @@ async function validateAgainstLiveSchema(name, document, schemaId) {
 
 await Promise.all([
   validateAgainstLiveSchema('server.json', server, SERVER_SCHEMA_ID),
-  validateAgainstLiveSchema('chatgpt-app-submission.json', submission, CHATGPT_SUBMISSION_SCHEMA_ID),
+  validateAgainstLiveSchema('chatgpt-app-submission.json', submission, CHATGPT_SUBMISSION_SCHEMA_ID, {
+    canonicalId: CHATGPT_SUBMISSION_SCHEMA_CANONICAL_ID,
+    transform: relaxSubmissionSchema,
+  }),
 ]);
 
 if (errors.length > 0) {
