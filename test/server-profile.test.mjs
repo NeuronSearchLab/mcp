@@ -116,6 +116,25 @@ test('marketplace submission annotations match the hosted runtime profile', () =
       assert.ok(typeof text === 'string' && text.trim().length > 0, `${name}.${field} must not be empty`);
     }
   }
+
+  // The submission form requires at least five positive test cases, and every
+  // tool a case names has to exist or a reviewer following it hits a dead end.
+  assert.ok(
+    Array.isArray(submission.test_cases) && submission.test_cases.length >= 5,
+    'submission needs at least five test cases',
+  );
+  const submittedTools = new Set(Object.keys(submission.tools));
+  for (const [index, testCase] of submission.test_cases.entries()) {
+    for (const field of ['description', 'user_prompt', 'tools_triggered']) {
+      assert.ok(
+        typeof testCase[field] === 'string' && testCase[field].trim().length > 0,
+        `test case ${index} is missing ${field}`,
+      );
+    }
+    for (const tool of testCase.tools_triggered.split(',').map((entry) => entry.trim())) {
+      assert.ok(submittedTools.has(tool), `test case ${index} names unknown tool ${tool}`);
+    }
+  }
 });
 
 test('hosted tools declare an output schema so models can read structured results', () => {

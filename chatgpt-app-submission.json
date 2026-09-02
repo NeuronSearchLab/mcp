@@ -491,52 +491,34 @@
   },
   "test_cases": [
     {
-      "description": "Resolve the customer's effective plan and identify exact resource overages before cleanup.",
-      "user_prompt": "Check which NeuronSearchLab plan I am on and tell me which resources need reducing to meet its limits.",
-      "file_attachment_urls": null,
-      "tools_triggered": "get_account_plan",
-      "expected_output": "The effective plan name, resolved per-resource limits, current usage, and exact reduction target for every resource over its limit.",
-      "expected_output_url": null
+      "description": "Cold start with no production data. The server instructions tell the model to call try_demo before asking the user to configure anything. try_demo provisions an isolated synthetic workspace, and once it reports stage 'ready' its structured result is passed unchanged to render_demo_recommendations, which draws the interactive playground card. If the workspace is still provisioning, try_demo returns stage 'preparing' and the model retries rather than rendering.",
+      "user_prompt": "I just connected NeuronSearchLab. Show me what it can do.",
+      "tools_triggered": "try_demo, render_demo_recommendations",
+      "expected_output": "An interactive card showing a synthetic demo user, their recent activity, and a ranked list of sample recommendations, clearly labelled as sample data, followed by an offer to record a sample interaction."
     },
     {
-      "description": "Inspect the recommendation surfaces configured for a customer workspace.",
-      "user_prompt": "List my recommendation contexts and briefly explain what each one is for.",
-      "file_attachment_urls": null,
-      "tools_triggered": "list_contexts",
-      "expected_output": "A concise list of the authenticated workspace's contexts using customer-visible IDs, names, types and descriptions.",
-      "expected_output_url": null
+      "description": "The demo's core payoff: showing that recorded behaviour changes the ranking. record_demo_interaction writes one synthetic event for a reserved demo user and sample item, then get_demo_recommendations re-ranks for that user so the change is visible. Both are restricted to the synthetic sample workspace and reject any user ID that is not a reserved demo user.",
+      "user_prompt": "Pretend I clicked the trail running shoes, then show me how my recommendations change.",
+      "tools_triggered": "record_demo_interaction, get_demo_recommendations, render_demo_recommendations",
+      "expected_output": "Confirmation that one synthetic click was recorded, then a refreshed ranking for the same demo user in which items related to the clicked product have moved up."
     },
     {
-      "description": "Search the customer's catalogue for a known product family.",
-      "user_prompt": "Search my catalogue for items matching 'running shoes' and show at most 10 results.",
-      "file_attachment_urls": null,
-      "tools_triggered": "search_items",
-      "expected_output": "Up to ten matching catalogue items with customer-visible identifiers and useful item details.",
-      "expected_output_url": null
+      "description": "The main production path: serve a ranking for a real user, then account for it. list_contexts resolves the named surface to its integer context ID, get_recommendations returns ranked items plus a request_id, and explain_ranking returns the score breakdown, applied rules and pipeline trace for the top item.",
+      "user_prompt": "What should I recommend to user u_10432 on our homepage feed, and why is the top result ranked first?",
+      "tools_triggered": "list_contexts, get_recommendations, explain_ranking",
+      "expected_output": "A ranked list of catalogue items with scores, followed by a breakdown of the top item's final score showing embedding similarity, which ranking rules matched, and which pipeline stages it passed."
     },
     {
-      "description": "Explain a recommendation result using the customer's ranking configuration.",
-      "user_prompt": "Explain why item SKU-1042 ranks for user customer-88 in context homepage-feed.",
-      "file_attachment_urls": null,
-      "tools_triggered": "explain_ranking",
-      "expected_output": "A score breakdown and pipeline trace that explains the ranking without revealing infrastructure secrets.",
-      "expected_output_url": null
+      "description": "Merchandising control through natural language. list_contexts resolves the surface, then create_rule writes a boost rule scoped to that context with a metadata condition and a weighted boost action. The rule is created active, and the model reports the new rule ID so it can be disabled or removed later.",
+      "user_prompt": "Boost everything in the outerwear category by 1.5x on the homepage feed.",
+      "tools_triggered": "list_contexts, create_rule",
+      "expected_output": "Confirmation that a boost rule was created against the homepage feed context, matching items whose category equals outerwear with a weight of 1.5, along with the new rule's ID."
     },
     {
-      "description": "Create a new draft recommendation surface for the customer.",
-      "user_prompt": "Create a recommendation context named 'Homepage Personalised Feed' with type homepage_feed, recommendation type user_to_item, and description 'Primary signed-in homepage feed'.",
-      "file_attachment_urls": null,
-      "tools_triggered": "create_context",
-      "expected_output": "Confirmation of the newly created context with its customer-visible identifier and configuration.",
-      "expected_output_url": null
-    },
-    {
-      "description": "Review stored A/B experiment results without triggering a recalculation.",
-      "user_prompt": "Show me the latest stored results for experiment 12. Do not refresh the metrics.",
-      "file_attachment_urls": null,
-      "tools_triggered": "get_experiment_results",
-      "expected_output": "The most recently stored experiment metrics and variant results, with no write or refresh operation.",
-      "expected_output_url": null
+      "description": "Read-only reporting across analytics and billing. top_items aggregates the most-clicked catalogue items over the requested window, and get_account_plan returns the resolved plan, live resource counts, metered usage and any overages. Neither changes workspace configuration.",
+      "user_prompt": "Which items got the most clicks in the last 7 days, and how much of my plan's item quota am I using?",
+      "tools_triggered": "top_items, get_account_plan",
+      "expected_output": "A ranked list of the most-clicked items for the 7 day window, followed by the current plan name, item count against the plan limit, and any overage."
     }
   ],
   "negative_test_cases": [
