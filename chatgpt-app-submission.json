@@ -447,6 +447,46 @@
         "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
         "destructive_justification": "Deletion cannot be undone and removes the definition even though historical event rows remain."
       }
+    },
+    "try_demo": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "Preparing the demo provisions a synthetic sample workspace and serves the first ranking, which writes sample catalogue, user and event rows plus serving-attribution and usage-metering records, so it is not read-only.",
+        "open_world_justification": "It provisions and reads only NeuronSearchLab's own synthetic sample data inside the authenticated customer's workspace and contacts no external service.",
+        "destructive_justification": "It creates isolated synthetic sample data and never overwrites or deletes the customer's real catalogue, configuration, or events."
+      }
+    },
+    "get_demo_recommendations": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "Serving a demo ranking runs the same recommendation path as production, which writes serving-attribution and usage-metering records, so it is not read-only.",
+        "open_world_justification": "It serves only from the reserved synthetic sample workspace of the authenticated customer and reaches no external service.",
+        "destructive_justification": "Refreshing a demo ranking does not modify or delete catalogue items, configuration, or any customer data."
+      }
+    },
+    "record_demo_interaction": {
+      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "It writes one synthetic view, click, or purchase event for a reserved demo user so the demo ranking visibly changes.",
+        "open_world_justification": "The event is written only to the authenticated customer's synthetic sample workspace.",
+        "destructive_justification": "It appends a single synthetic event, overwrites nothing, is idempotent on a retried MCP request, and never touches real catalogue or event data."
+      }
+    },
+    "start_using_my_data": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "It only reads the workspace's current onboarding stage and returns the matching console URL and guidance; it creates no credentials, imports no data, and changes no workspace state.",
+        "open_world_justification": "It reports only on the authenticated customer's own NeuronSearchLab workspace and links to first-party console pages.",
+        "destructive_justification": "Returning handoff guidance has no persistent effect and removes nothing."
+      }
+    },
+    "render_demo_recommendations": {
+      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
+      "justifications": {
+        "read_only_justification": "Presentation only: it validates and sanitizes the structured result already returned by try_demo and renders it as a card, issuing no data access of its own.",
+        "open_world_justification": "It renders only data that originated in the authenticated customer's synthetic sample workspace and makes no outbound request.",
+        "destructive_justification": "Rendering the demo card stores nothing and modifies nothing."
+      }
     }
   },
   "test_cases": [

@@ -77,17 +77,55 @@ test('marketplace submission annotations match the hosted runtime profile', () =
   const submission = JSON.parse(readFileSync(new URL('../chatgpt-app-submission.json', import.meta.url), 'utf8'));
   const runtimeTools = new Map(getExportedTools('internal', 'hosted').map((tool) => [tool.name, tool]));
 
+  // The console layer (nsl_admin_console_next) appends these ChatGPT onboarding
+  // tools to tools/list at runtime, so the marketplace form lists them even
+  // though this package does not declare them.
+  const CONSOLE_INJECTED_TOOLS = [
+    'try_demo',
+    'get_demo_recommendations',
+    'record_demo_interaction',
+    'start_using_my_data',
+    'render_demo_recommendations',
+  ];
+
   assert.equal(submission.$schema, 'https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json');
   assert.ok([...submission.app_info.subtitle].length <= 30, 'marketplace subtitle must be at most 30 characters');
-  assert.deepEqual(Object.keys(submission.tools).sort(), [...runtimeTools.keys()].sort());
+  assert.deepEqual(
+    Object.keys(submission.tools).sort(),
+    [...runtimeTools.keys(), ...CONSOLE_INJECTED_TOOLS].sort(),
+  );
 
   for (const [name, metadata] of Object.entries(submission.tools)) {
     const runtime = runtimeTools.get(name);
-    assert.deepEqual(metadata.annotations, {
-      readOnlyHint: runtime?.annotations?.readOnlyHint,
-      openWorldHint: runtime?.annotations?.openWorldHint,
-      destructiveHint: runtime?.annotations?.destructiveHint,
-    }, `${name} submission annotations`);
+    if (runtime) {
+      assert.deepEqual(metadata.annotations, {
+        readOnlyHint: runtime.annotations?.readOnlyHint,
+        openWorldHint: runtime.annotations?.openWorldHint,
+        destructiveHint: runtime.annotations?.destructiveHint,
+      }, `${name} submission annotations`);
+    }
+
+    // Every explicit annotation needs its own justification or the marketplace
+    // submission form refuses to submit.
+    assert.deepEqual(
+      Object.keys(metadata.justifications ?? {}).sort(),
+      ['destructive_justification', 'open_world_justification', 'read_only_justification'],
+      `${name} is missing an annotation justification`,
+    );
+    for (const [field, text] of Object.entries(metadata.justifications)) {
+      assert.ok(typeof text === 'string' && text.trim().length > 0, `${name}.${field} must not be empty`);
+    }
+  }
+});
+
+test('hosted tools declare an output schema so models can read structured results', () => {
+  for (const tool of getExportedTools('internal', 'hosted')) {
+    assert.ok(tool.outputSchema, `${tool.name} must declare an outputSchema`);
+    assert.equal(tool.outputSchema.type, 'object', `${tool.name} outputSchema must be an object schema`);
+    assert.ok(
+      tool.outputSchema.required?.includes('ok'),
+      `${tool.name} outputSchema must require the ok field the server always sets`,
+    );
   }
 });
 

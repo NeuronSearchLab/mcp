@@ -2099,6 +2099,228 @@ const TOOL_METADATA: Record<string, ToolMeta> = {
   call_platform_api: { title: 'Call platform API', destructive: true, openWorld: true },
 };
 
+// ── Tool output schemas ───────────────────────────────────────────────────────
+// A client that sees an outputSchema rejects any non-error result without
+// matching structuredContent, so these stay deliberately permissive: `ok` plus
+// the fields this server builds itself are required, payload objects allow
+// additional properties, and upstream shape drift can never fail validation.
+
+const OUTPUT_OBJECT = { type: 'object', additionalProperties: true } as const;
+const OUTPUT_OBJECT_ARRAY = {
+  type: 'array',
+  items: { type: 'object', additionalProperties: true },
+} as const;
+
+function outputSchema(
+  properties: Record<string, unknown> = {},
+  required: string[] = [],
+): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean', description: 'True when the call succeeded.' },
+      ...properties,
+    },
+    required: ['ok', ...required],
+    additionalProperties: true,
+  };
+}
+
+/** `{ ok, count, <key>: [...] }` — for tools that list a collection. */
+function listOutput(key: string, description: string): Record<string, unknown> {
+  return outputSchema({
+    count: { type: 'integer', description: `Number of ${description} returned.` },
+    [key]: { ...OUTPUT_OBJECT_ARRAY, description: `The ${description}.` },
+  }, ['count', key]);
+}
+
+/** `{ ok, <key>: {...} }` — for tools that return a single record. */
+function recordOutput(
+  key: string,
+  description: string,
+  extra: Record<string, unknown> = {},
+  extraRequired: string[] = [],
+): Record<string, unknown> {
+  return outputSchema({
+    ...extra,
+    [key]: { ...OUTPUT_OBJECT, description },
+  }, [...extraRequired, key]);
+}
+
+/** `{ ok, action, <id>, <key>: {...} }` — for tools that change a record. */
+function mutationOutput(
+  key: string,
+  description: string,
+  idField?: string,
+): Record<string, unknown> {
+  return outputSchema({
+    action: { type: 'string', description: 'The change that was applied.' },
+    ...(idField ? { [idField]: { type: ['integer', 'string'], description: 'Identifier of the affected record.' } } : {}),
+    [key]: { ...OUTPUT_OBJECT, description },
+  }, ['action', ...(idField ? [idField] : []), key]);
+}
+
+const RECOMMENDATION_ITEMS = {
+  ...OUTPUT_OBJECT_ARRAY,
+  description: 'Ranked items, best first.',
+} as const;
+
+const TOOL_OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
+  // ── Recommendations ─────────────────────────────────────────────────
+  get_recommendations: outputSchema({
+    request_id: { type: ['string', 'null'], description: 'Pass this to track_event so interactions are attributed to this ranking.' },
+    processing_time_ms: { type: ['number', 'null'], description: 'Server-side ranking latency.' },
+    count: { type: 'integer', description: 'Number of recommendations returned.' },
+    recommendations: RECOMMENDATION_ITEMS,
+  }, ['count', 'recommendations']),
+  get_auto_recommendations: outputSchema({
+    request_id: { type: ['string', 'null'], description: 'Pass this to track_event so interactions are attributed to this section.' },
+    processing_time_ms: { type: ['number', 'null'], description: 'Server-side ranking latency.' },
+    count: { type: 'integer', description: 'Number of recommendations in this section.' },
+    recommendations: RECOMMENDATION_ITEMS,
+    section: { type: ['object', 'null'], additionalProperties: true, description: 'The generated section (title, reason) when the API supplies one.' },
+    next_cursor: { type: ['string', 'null'], description: 'Cursor for the next section, or null when finished.' },
+    done: { type: 'boolean', description: 'True when no further sections remain.' },
+  }, ['count', 'recommendations', 'done']),
+
+  // ── Catalogue ───────────────────────────────────────────────────────
+  track_event: outputSchema({
+    tracked: { type: 'boolean', description: 'True when the event was accepted.' },
+    event: { ...OUTPUT_OBJECT, description: 'The stored event as returned by the API.' },
+  }, ['tracked', 'event']),
+  upsert_item: recordOutput('item', 'The ingested item, including its NSL-generated integer ID.'),
+  patch_item: mutationOutput('item', 'The updated item.', 'item_id'),
+  delete_items: outputSchema({
+    deleted_count: { type: 'integer', description: 'Number of items removed.' },
+    item_ids: { type: 'array', items: { type: 'integer' }, description: 'The item IDs that were requested for deletion.' },
+  }, ['deleted_count', 'item_ids']),
+  search_items: outputSchema({
+    query: { type: 'string', description: 'The search text that was used.' },
+    total: { type: 'integer', description: 'Total matches reported by the API.' },
+    count: { type: 'integer', description: 'Number of items in this response.' },
+    items: { ...OUTPUT_OBJECT_ARRAY, description: 'Matching catalogue items with their IDs, names, descriptions and active status.' },
+  }, ['query', 'count', 'items']),
+  explain_ranking: outputSchema({
+    item_id: { type: ['integer', 'string'], description: 'The item that was explained.' },
+    user_id: { type: ['string', 'null'], description: 'The user scored against, or null for a neutral baseline.' },
+    context_id: { type: ['integer', 'null'], description: 'The context whose rules were applied.' },
+    explanation: { ...OUTPUT_OBJECT, description: 'Final score, per-feature breakdown, applied rules and pipeline trace.' },
+  }, ['item_id', 'explanation']),
+
+  // ── Account ─────────────────────────────────────────────────────────
+  get_account_plan: recordOutput('plan', 'Current plan, resolved limits, live resource counts, metered usage and overages.'),
+
+  // ── Contexts ────────────────────────────────────────────────────────
+  list_contexts: listOutput('contexts', 'recommendation contexts'),
+  get_context: recordOutput('context', 'The requested context.', { context_id: { type: 'integer', description: 'The context that was read.' } }, ['context_id']),
+  create_context: mutationOutput('context', 'The newly created context.'),
+  update_context: mutationOutput('context', 'The context after the update.', 'context_id'),
+  delete_context: outputSchema({
+    action: { type: 'string', description: 'The change that was applied.' },
+    context_id: { type: 'integer', description: 'The context that was deleted.' },
+    deleted: { ...OUTPUT_OBJECT, description: 'Counts of associated pipelines, rules and feed blueprints removed with the context.' },
+  }, ['action', 'context_id', 'deleted']),
+
+  // ── Pipelines ───────────────────────────────────────────────────────
+  list_pipelines: listOutput('pipelines', 'ranking pipelines'),
+  get_pipeline: recordOutput('pipeline', 'The requested pipeline and its stages.', { pipeline_id: { type: 'integer', description: 'The pipeline that was read.' } }, ['pipeline_id']),
+  create_pipeline: mutationOutput('pipeline', 'The newly created pipeline.'),
+  update_pipeline: mutationOutput('pipeline', 'The pipeline after the update.', 'pipeline_id'),
+  delete_pipeline: mutationOutput('pipeline', 'Confirmation of the removed pipeline.', 'pipeline_id'),
+  activate_pipeline: mutationOutput('pipeline', 'The pipeline after activation.', 'pipeline_id'),
+  deactivate_pipeline: mutationOutput('pipeline', 'The pipeline after deactivation.', 'pipeline_id'),
+  clone_pipeline: mutationOutput('pipeline', 'The new pipeline created from the source.', 'source_pipeline_id'),
+
+  // ── Rules ───────────────────────────────────────────────────────────
+  list_rules: listOutput('rules', 'ranking rules'),
+  get_rule: recordOutput('rule', 'The requested rule and its conditions and actions.', { rule_id: { type: 'integer', description: 'The rule that was read.' } }, ['rule_id']),
+  create_rule: mutationOutput('rule', 'The newly created rule.'),
+  update_rule: mutationOutput('rule', 'The rule after the update.', 'rule_id'),
+  delete_rule: mutationOutput('rule', 'Confirmation of the removed rule.', 'rule_id'),
+  toggle_rule: mutationOutput('rule', 'The rule after the change.', 'rule_id'),
+  enable_rule: mutationOutput('rule', 'The rule after being enabled.', 'rule_id'),
+  disable_rule: mutationOutput('rule', 'The rule after being disabled.', 'rule_id'),
+
+  // ── Segments ────────────────────────────────────────────────────────
+  list_segments: listOutput('segments', 'user segments'),
+  get_segment: recordOutput('segment', 'The requested segment and its membership conditions.', { segment_id: { type: 'integer', description: 'The segment that was read.' } }, ['segment_id']),
+  create_segment: mutationOutput('segment', 'The newly created segment.'),
+  update_segment: mutationOutput('segment', 'The segment after the update.', 'segment_id'),
+  delete_segment: mutationOutput('segment', 'Confirmation of the removed segment.', 'segment_id'),
+
+  // ── Experiments ─────────────────────────────────────────────────────
+  list_experiments: listOutput('experiments', 'A/B experiments'),
+  get_experiment: recordOutput('experiment', 'The requested experiment, its variants and status.', { experiment_id: { type: 'integer', description: 'The experiment that was read.' } }, ['experiment_id']),
+  create_experiment: mutationOutput('experiment', 'The newly created draft experiment.'),
+  update_experiment: mutationOutput('experiment', 'The experiment after the update.', 'experiment_id'),
+  start_experiment: mutationOutput('experiment', 'The experiment after traffic splitting began.', 'experiment_id'),
+  stop_experiment: mutationOutput('experiment', 'The experiment after being completed.', 'experiment_id'),
+  get_experiment_results: recordOutput('experiment', 'The experiment with its stored per-variant metrics.', { experiment_id: { type: 'integer', description: 'The experiment that was read.' } }, ['experiment_id']),
+  refresh_experiment_results: mutationOutput('experiment', 'The experiment with freshly recalculated metrics.', 'experiment_id'),
+
+  // ── Campaigns ───────────────────────────────────────────────────────
+  list_campaigns: listOutput('campaigns', 'campaigns'),
+  get_campaign: recordOutput('campaign', 'The requested campaign.', { campaign_id: { type: ['integer', 'string'], description: 'The campaign that was read.' } }, ['campaign_id']),
+  create_campaign: mutationOutput('campaign', 'The newly created campaign.'),
+  update_campaign: mutationOutput('campaign', 'The campaign after the update.', 'campaign_id'),
+  delete_campaign: mutationOutput('campaign', 'Confirmation of the removed campaign.', 'campaign_id'),
+  activate_campaign: mutationOutput('campaign', 'The campaign after activation.', 'campaign_id'),
+  pause_campaign: mutationOutput('campaign', 'The campaign after being paused.', 'campaign_id'),
+
+  // ── Training jobs ───────────────────────────────────────────────────
+  list_training_jobs: listOutput('jobs', 'model training jobs'),
+  get_training_job: recordOutput('job', 'Customer-facing training status summary.', { job_id: { type: 'string', description: 'The training job that was read.' } }, ['job_id']),
+  create_training_job: outputSchema({
+    action: { type: 'string', description: 'The change that was applied.' },
+    job_id: { type: ['string', 'null'], description: 'Identifier of the started job, or null while it is still pending.' },
+    warning: { type: ['string', 'null'], description: 'Any warning returned when starting the job.' },
+    job: { ...OUTPUT_OBJECT, description: 'The start-training response.' },
+  }, ['action', 'job']),
+  cancel_training_job: mutationOutput('job', 'The cancellation response.', 'job_id'),
+
+  // ── Analytics ───────────────────────────────────────────────────────
+  get_ranking_metrics: outputSchema({
+    window: { type: 'string', description: 'The time window the metrics cover.' },
+    metrics: { ...OUTPUT_OBJECT, description: 'Ranking performance metrics such as served counts, CTR, conversion rate, diversity and coverage.' },
+  }, ['window', 'metrics']),
+  get_experiment_metrics: recordOutput('metrics', 'Per-variant experiment metrics.', { experiment_id: { type: ['integer', 'string'], description: 'The experiment that was measured.' } }, ['experiment_id']),
+  get_segment_metrics: recordOutput('metrics', 'Segment performance metrics.', { segment_id: { type: ['integer', 'string'], description: 'The segment that was measured.' }, window: { type: 'string', description: 'The time window the metrics cover.' } }, ['segment_id', 'window']),
+  get_user_analytics: recordOutput('analytics', 'Aggregated activity for the user.', { user_id: { type: 'string', description: 'The user that was analysed.' } }, ['user_id']),
+  get_item_analytics: recordOutput('analytics', 'Aggregated activity for the item.', { item_id: { type: ['integer', 'string'], description: 'The item that was analysed.' } }, ['item_id']),
+  compare_items: outputSchema({
+    item_a_id: { type: ['integer', 'string'], description: 'First item in the comparison.' },
+    item_b_id: { type: ['integer', 'string'], description: 'Second item in the comparison.' },
+    comparison: { ...OUTPUT_OBJECT, description: 'Side-by-side metrics for both items.' },
+  }, ['item_a_id', 'item_b_id', 'comparison']),
+  top_items: outputSchema({
+    metric: { type: 'string', description: 'The metric the ranking is ordered by.' },
+    fallback_applied: { type: 'boolean', description: 'True when no events matched and the response fell back to served counts.' },
+    count: { type: 'integer', description: 'Number of items returned.' },
+    items: { ...OUTPUT_OBJECT_ARRAY, description: 'Items ordered by the requested metric.' },
+  }, ['metric', 'fallback_applied', 'count', 'items']),
+
+  // ── API keys, integrations, event types ─────────────────────────────
+  list_api_keys: listOutput('keys', 'API keys (metadata only — secret values are never returned)'),
+  create_api_key: recordOutput('key', 'The created key. The full secret is shown once and cannot be retrieved again.'),
+  revoke_api_key: mutationOutput('key', 'Confirmation of the revoked key.', 'key_id'),
+  list_integrations: listOutput('integrations', 'configured integrations'),
+  list_event_types: listOutput('event_types', 'event types and their model weights'),
+  create_event_type: mutationOutput('event_type', 'The newly created event type.', 'event_id'),
+  update_event_type: mutationOutput('event_type', 'The event type after the update.', 'event_id'),
+  delete_event_type: mutationOutput('event_type', 'Confirmation of the removed event type.', 'event_id'),
+
+  // ── Platform escape hatch ───────────────────────────────────────────
+  list_platform_routes: outputSchema({
+    section: { type: ['string', 'null'], description: 'The section that was listed, or null for all sections.' },
+    routes: { type: 'string', description: 'The formatted route reference.' },
+  }, ['routes']),
+  call_platform_api: outputSchema({
+    method: { type: 'string', description: 'HTTP method that was used.' },
+    path: { type: 'string', description: 'Platform API path that was called.' },
+    response: { description: 'The raw platform API response, which may be any JSON value.' },
+  }, ['method', 'path']),
+};
+
 function decorateTool(tool: Tool, profile: ToolProfile): AuthenticatedTool {
   const meta = TOOL_METADATA[tool.name];
   if (!meta) return tool;
@@ -2114,6 +2336,9 @@ function decorateTool(tool: Tool, profile: ToolProfile): AuthenticatedTool {
       destructiveHint: meta.destructive === true,
     },
   };
+
+  const outputSchemaForTool = TOOL_OUTPUT_SCHEMAS[tool.name];
+  if (outputSchemaForTool) decorated.outputSchema = outputSchemaForTool as Tool['outputSchema'];
 
   if (profile === 'hosted') {
     // ChatGPT's Apps SDK reads the top-level declaration. The _meta mirror is
@@ -2207,6 +2432,48 @@ export function getExportedTools(mode: ServerMode, profile: ToolProfile) {
     .map((tool) => decorateTool(tool, profile));
 }
 
+// ── Structured result helpers ─────────────────────────────────────────────────
+// Every value that reaches structuredContent is coerced here, so an unexpected
+// upstream shape can never produce output that fails the declared outputSchema.
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function asObjectArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function intOr(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function extractRecommendations(res: unknown): Record<string, unknown>[] {
+  const payload = asObject(res);
+  return asObjectArray(Array.isArray(payload.recommendations) ? payload.recommendations : payload.data);
+}
+
+function toolResult(structuredContent: Record<string, unknown>, text: string) {
+  return {
+    structuredContent: { ok: true, ...structuredContent },
+    content: [{ type: 'text' as const, text }],
+  };
+}
+
 function unsupportedAdminToolResponse(toolName: string, mode: ServerMode) {
   return {
     content: [{
@@ -2254,7 +2521,14 @@ export function createServer(
             quantity: input.limit,
             surface: (input as z.infer<typeof GetRecommendationsInput>).surface,
           });
-          return { content: [{ type: 'text', text: formatRecommendations(res) }] };
+          const payload = asObject(res);
+          const recommendations = extractRecommendations(res);
+          return toolResult({
+            request_id: stringOrNull(payload.request_id),
+            processing_time_ms: numberOrNull(payload.processing_time_ms),
+            count: recommendations.length,
+            recommendations,
+          }, formatRecommendations(res));
         }
 
         case 'get_auto_recommendations': {
@@ -2267,7 +2541,21 @@ export function createServer(
             cursor: (input as z.infer<typeof GetAutoRecommendationsInput>).cursor,
             window_days: (input as z.infer<typeof GetAutoRecommendationsInput>).window_days,
           });
-          return { content: [{ type: 'text', text: formatRecommendations(res) }] };
+          const payload = asObject(res);
+          const recommendations = extractRecommendations(res);
+          const section = payload.section;
+          const nextCursor = stringOrNull(payload.next_cursor);
+          return toolResult({
+            request_id: stringOrNull(payload.request_id),
+            processing_time_ms: numberOrNull(payload.processing_time_ms),
+            count: recommendations.length,
+            recommendations,
+            section: section && typeof section === 'object' && !Array.isArray(section)
+              ? section as Record<string, unknown>
+              : null,
+            next_cursor: nextCursor,
+            done: payload.done === true || nextCursor === null,
+          }, formatRecommendations(res));
         }
 
         case 'track_event': {
@@ -2280,12 +2568,10 @@ export function createServer(
             ...(input.session_id && { session_id: input.session_id }),
             client_ts: new Date().toISOString(),
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Event tracked successfully.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { tracked: true, event: asObject(res) },
+            `✅ Event tracked successfully.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'upsert_item': {
@@ -2295,12 +2581,10 @@ export function createServer(
             description: input.description,
             metadata: input.metadata ?? {},
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Item ingested with an NSL-generated integer ID.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { item: asObject(res) },
+            `✅ Item ingested with an NSL-generated integer ID.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'patch_item': {
@@ -2312,12 +2596,10 @@ export function createServer(
             };
           }
           const res = await client.patch(`/items/${encodeURIComponent(item_id)}`, rest);
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Item updated.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'updated', item_id, item: asObject(res) },
+            `✅ Item updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_items': {
@@ -2326,12 +2608,13 @@ export function createServer(
             ? { itemId: input.item_ids[0] }
             : input.item_ids.map(id => ({ itemId: id }));
           const res = await client.delete('/items', body);
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Deleted ${(res as any)?.deletedCount ?? input.item_ids.length} item(s).\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            {
+              deleted_count: intOr((res as any)?.deletedCount, input.item_ids.length),
+              item_ids: input.item_ids,
+            },
+            `✅ Deleted ${(res as any)?.deletedCount ?? input.item_ids.length} item(s).\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'search_items': {
@@ -2347,7 +2630,10 @@ export function createServer(
               }) as any;
 
           if (!res?.items?.length) {
-            return { content: [{ type: 'text', text: `No items found matching "${input.query}".` }] };
+            return toolResult(
+              { query: input.query, total: 0, count: 0, items: [] },
+              `No items found matching "${input.query}".`,
+            );
           }
 
           const lines = [
@@ -2361,7 +2647,13 @@ export function createServer(
             }
             lines.push(`  status: ${item.active === false ? 'inactive' : 'active'}`);
           }
-          return { content: [{ type: 'text', text: lines.join('\n') }] };
+          const items = asObjectArray(res.items);
+          return toolResult({
+            query: input.query,
+            total: intOr(res.total, items.length),
+            count: items.length,
+            items,
+          }, lines.join('\n'));
         }
 
         case 'explain_ranking': {
@@ -2425,14 +2717,19 @@ export function createServer(
             }
           }
 
-          return { content: [{ type: 'text', text: lines.join('\n') }] };
+          return toolResult({
+            item_id: input.item_id,
+            user_id: input.user_id ?? null,
+            context_id: input.context_id ?? null,
+            explanation: asObject(explanation),
+          }, lines.join('\n'));
         }
 
         // ── Context management ────────────────────────────────────────
         case 'get_account_plan': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const res = await client.get<any>('/api/tier/limits');
-          return { content: [{ type: 'text', text: formatAccountPlan(res) }] };
+          return toolResult({ plan: asObject(res) }, formatAccountPlan(res));
         }
 
         case 'list_contexts': {
@@ -2442,7 +2739,8 @@ export function createServer(
           const text = formatList('context(s)', contexts, (c) =>
             `[id: ${c.id}] ${c.name ?? c.context_name ?? 'Unnamed'}`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(contexts);
+          return toolResult({ count: rows.length, contexts: rows }, text);
         }
 
         case 'create_context': {
@@ -2455,12 +2753,10 @@ export function createServer(
             description: input.description,
             jsonData: { recommendation_type: input.recommendation_type },
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Context created.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'created', context: asObject(res) },
+            `✅ Context created.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_context': {
@@ -2480,12 +2776,10 @@ export function createServer(
               ? { recommendation_type: input.recommendation_type }
               : undefined,
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Context ${input.context_id} updated.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'updated', context_id: input.context_id, context: asObject(res) },
+            `✅ Context ${input.context_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_context': {
@@ -2496,12 +2790,10 @@ export function createServer(
           const associated = deleted
             ? ` Associated configuration removed: ${deleted.pipelines ?? 0} pipeline(s), ${deleted.rules ?? 0} rule(s), ${deleted.feed_blueprints ?? 0} feed blueprint(s).`
             : '';
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Context ${input.context_id} deleted.${associated}`,
-            }],
-          };
+          return toolResult(
+            { action: 'deleted', context_id: input.context_id, deleted: asObject(deleted) },
+            `✅ Context ${input.context_id} deleted.${associated}`,
+          );
         }
 
         case 'get_context': {
@@ -2513,7 +2805,10 @@ export function createServer(
           if (!context) {
             return { content: [{ type: 'text', text: `❌ Context ${input.context_id} not found.` }], isError: true };
           }
-          return { content: [{ type: 'text', text: `Context ${input.context_id}:\n${JSON.stringify(context, null, 2)}` }] };
+          return toolResult(
+            { context_id: input.context_id, context: asObject(context) },
+            `Context ${input.context_id}:\n${JSON.stringify(context, null, 2)}`,
+          );
         }
 
         // ── Pipeline management ───────────────────────────────────────
@@ -2524,7 +2819,8 @@ export function createServer(
           const text = formatList('pipeline(s)', pipelines, (p) =>
             `[id: ${p.id}] ${p.name} (context: ${p.context_id ?? 'none'}, active: ${p.is_active})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(pipelines);
+          return toolResult({ count: rows.length, pipelines: rows }, text);
         }
 
         case 'create_pipeline': {
@@ -2536,12 +2832,10 @@ export function createServer(
             context_id: input.context_id,
             is_active: input.is_active,
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Pipeline created.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'created', pipeline: asObject(res) },
+            `✅ Pipeline created.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_pipeline': {
@@ -2549,42 +2843,50 @@ export function createServer(
           const input = UpdatePipelineInput.parse(args);
           const { pipeline_id, ...body } = input;
           const res = await client.patch(`/api/pipelines/${pipeline_id}`, body);
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Pipeline ${pipeline_id} updated.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'updated', pipeline_id, pipeline: asObject(res) },
+            `✅ Pipeline ${pipeline_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_pipeline': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeletePipelineInput.parse(args);
           await client.delete(`/api/pipelines/${input.pipeline_id}`);
-          return {
-            content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deleted.` }],
-          };
+          return toolResult(
+            { action: 'deleted', pipeline_id: input.pipeline_id, pipeline: {} },
+            `✅ Pipeline ${input.pipeline_id} deleted.`,
+          );
         }
 
         case 'get_pipeline': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetPipelineInput.parse(args);
           const res = await client.get<any>(`/api/pipelines/${input.pipeline_id}`);
-          return { content: [{ type: 'text', text: `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { pipeline_id: input.pipeline_id, pipeline: asObject(res?.pipeline ?? res) },
+            `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'activate_pipeline': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = ActivatePipelineInput.parse(args);
           const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: true });
-          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'activated', pipeline_id: input.pipeline_id, pipeline: asObject(res) },
+            `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'deactivate_pipeline': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeactivatePipelineInput.parse(args);
           const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: false });
-          return { content: [{ type: 'text', text: `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'deactivated', pipeline_id: input.pipeline_id, pipeline: asObject(res) },
+            `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'clone_pipeline': {
@@ -2602,7 +2904,10 @@ export function createServer(
             is_active: pipeline.is_active,
             stages: pipeline.stages,
           });
-          return { content: [{ type: 'text', text: `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'cloned', source_pipeline_id: input.pipeline_id, pipeline: asObject(res) },
+            `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         // ── Rule management ───────────────────────────────────────────
@@ -2616,7 +2921,8 @@ export function createServer(
           const text = formatList('rule(s)', rules, (r) =>
             `[id: ${r.id}] ${r.name} (type: ${r.rule_type}, active: ${r.is_active}, context: ${r.context_id ?? 'all'})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(rules);
+          return toolResult({ count: rows.length, rules: rows }, text);
         }
 
         case 'create_rule': {
@@ -2631,12 +2937,10 @@ export function createServer(
             conditions: input.conditions,
             actions: input.actions,
           });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Rule created.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'created', rule: asObject(res) },
+            `✅ Rule created.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_rule': {
@@ -2644,54 +2948,64 @@ export function createServer(
           const input = UpdateRuleInput.parse(args);
           const { rule_id, ...body } = input;
           const res = await client.patch(`/api/rules/${rule_id}`, body);
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Rule ${rule_id} updated.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            { action: 'updated', rule_id, rule: asObject(res) },
+            `✅ Rule ${rule_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_rule': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeleteRuleInput.parse(args);
           await client.delete(`/api/rules/${input.rule_id}`);
-          return {
-            content: [{ type: 'text', text: `✅ Rule ${input.rule_id} deleted.` }],
-          };
+          return toolResult(
+            { action: 'deleted', rule_id: input.rule_id, rule: {} },
+            `✅ Rule ${input.rule_id} deleted.`,
+          );
         }
 
         case 'toggle_rule': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = ToggleRuleInput.parse(args);
           const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: input.is_active });
-          return {
-            content: [{
-              type: 'text',
-              text: `✅ Rule ${input.rule_id} is now ${input.is_active ? 'active' : 'inactive'}.\n${JSON.stringify(res, null, 2)}`,
-            }],
-          };
+          return toolResult(
+            {
+              action: input.is_active ? 'enabled' : 'disabled',
+              rule_id: input.rule_id,
+              rule: asObject(res),
+            },
+            `✅ Rule ${input.rule_id} is now ${input.is_active ? 'active' : 'inactive'}.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'get_rule': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetRuleInput.parse(args);
           const res = await client.get<any>(`/api/rules/${input.rule_id}`);
-          return { content: [{ type: 'text', text: `Rule ${input.rule_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { rule_id: input.rule_id, rule: asObject(res?.rule ?? res) },
+            `Rule ${input.rule_id}:\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'enable_rule': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = EnableRuleInput.parse(args);
           const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: true });
-          return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} enabled.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'enabled', rule_id: input.rule_id, rule: asObject(res) },
+            `✅ Rule ${input.rule_id} enabled.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'disable_rule': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DisableRuleInput.parse(args);
           const res = await client.patch(`/api/rules/${input.rule_id}`, { is_active: false });
-          return { content: [{ type: 'text', text: `✅ Rule ${input.rule_id} disabled.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'disabled', rule_id: input.rule_id, rule: asObject(res) },
+            `✅ Rule ${input.rule_id} disabled.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'reorder_rules': {
@@ -2706,14 +3020,18 @@ export function createServer(
           const text = formatList('segment(s)', segments, (s) =>
             `[id: ${s.id}] ${s.name} (active: ${s.is_active})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(segments);
+          return toolResult({ count: rows.length, segments: rows }, text);
         }
 
         case 'get_segment': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetSegmentInput.parse(args);
           const res = await client.get<any>(`/api/segments/${input.segment_id}`);
-          return { content: [{ type: 'text', text: `Segment ${input.segment_id}:\n${JSON.stringify(res?.segment ?? res, null, 2)}` }] };
+          return toolResult(
+            { segment_id: input.segment_id, segment: asObject(res?.segment ?? res) },
+            `Segment ${input.segment_id}:\n${JSON.stringify(res?.segment ?? res, null, 2)}`,
+          );
         }
 
         case 'create_segment': {
@@ -2725,7 +3043,10 @@ export function createServer(
             conditions: input.conditions,
             is_active: input.is_active,
           });
-          return { content: [{ type: 'text', text: `✅ Segment created.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'created', segment: asObject(res) },
+            `✅ Segment created.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_segment': {
@@ -2733,14 +3054,20 @@ export function createServer(
           const input = UpdateSegmentInput.parse(args);
           const { segment_id, ...body } = input;
           const res = await client.patch(`/api/segments/${segment_id}`, body);
-          return { content: [{ type: 'text', text: `✅ Segment ${segment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'updated', segment_id, segment: asObject(res) },
+            `✅ Segment ${segment_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_segment': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = DeleteSegmentInput.parse(args);
           await client.delete(`/api/segments/${input.segment_id}`);
-          return { content: [{ type: 'text', text: `✅ Segment ${input.segment_id} deleted.` }] };
+          return toolResult(
+            { action: 'deleted', segment_id: input.segment_id, segment: {} },
+            `✅ Segment ${input.segment_id} deleted.`,
+          );
         }
 
         case 'get_segment_stats': {
@@ -2760,14 +3087,18 @@ export function createServer(
           const text = formatList('experiment(s)', experiments, (e) =>
             `[id: ${e.id}] ${e.name} (status: ${e.status})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(experiments);
+          return toolResult({ count: rows.length, experiments: rows }, text);
         }
 
         case 'get_experiment': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetExperimentInput.parse(args);
           const res = await client.get<any>(`/api/experiments/${input.experiment_id}`);
-          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id}:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
+          return toolResult(
+            { experiment_id: input.experiment_id, experiment: asObject(res?.experiment ?? res) },
+            `Experiment ${input.experiment_id}:\n${JSON.stringify(res?.experiment ?? res, null, 2)}`,
+          );
         }
 
         case 'create_experiment': {
@@ -2778,7 +3109,10 @@ export function createServer(
             description: input.description,
             variants: input.variants,
           });
-          return { content: [{ type: 'text', text: `✅ Experiment created. Use start_experiment to begin traffic splitting.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'created', experiment: asObject(res) },
+            `✅ Experiment created. Use start_experiment to begin traffic splitting.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_experiment': {
@@ -2786,28 +3120,40 @@ export function createServer(
           const input = UpdateExperimentInput.parse(args);
           const { experiment_id, ...body } = input;
           const res = await client.patch(`/api/experiments/${experiment_id}`, body);
-          return { content: [{ type: 'text', text: `✅ Experiment ${experiment_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'updated', experiment_id, experiment: asObject(res) },
+            `✅ Experiment ${experiment_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'start_experiment': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = StartExperimentInput.parse(args);
           const res = await client.patch(`/api/experiments/${input.experiment_id}`, { status: 'running' });
-          return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} started. Traffic is now splitting between variants.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'started', experiment_id: input.experiment_id, experiment: asObject(res) },
+            `✅ Experiment ${input.experiment_id} started. Traffic is now splitting between variants.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'stop_experiment': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = StopExperimentInput.parse(args);
           const res = await client.patch(`/api/experiments/${input.experiment_id}`, { status: 'completed' });
-          return { content: [{ type: 'text', text: `✅ Experiment ${input.experiment_id} stopped. Use get_experiment_results to view final results.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'stopped', experiment_id: input.experiment_id, experiment: asObject(res) },
+            `✅ Experiment ${input.experiment_id} stopped. Use get_experiment_results to view final results.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'get_experiment_results': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = GetExperimentResultsInput.parse(args);
           const res = await client.get<any>(`/api/experiments/${input.experiment_id}`);
-          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} results:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
+          return toolResult(
+            { experiment_id: input.experiment_id, experiment: asObject(res?.experiment ?? res) },
+            `Experiment ${input.experiment_id} results:\n${JSON.stringify(res?.experiment ?? res, null, 2)}`,
+          );
         }
 
         case 'refresh_experiment_results': {
@@ -2815,7 +3161,10 @@ export function createServer(
           const input = GetExperimentResultsInput.parse(args);
           await client.post(`/api/experiments/${input.experiment_id}/metrics`, {});
           const res = await client.get<any>(`/api/experiments/${input.experiment_id}`);
-          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} metrics refreshed:\n${JSON.stringify(res?.experiment ?? res, null, 2)}` }] };
+          return toolResult(
+            { action: 'refreshed', experiment_id: input.experiment_id, experiment: asObject(res?.experiment ?? res) },
+            `Experiment ${input.experiment_id} metrics refreshed:\n${JSON.stringify(res?.experiment ?? res, null, 2)}`,
+          );
         }
 
         // ── Campaign management ───────────────────────────────────────
@@ -2824,13 +3173,17 @@ export function createServer(
           const text = formatList('campaign(s)', res ?? [], (c) =>
             `[id: ${c.id}] ${c.name} (active: ${c.is_active}, ${c.start_date} → ${c.end_date})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(res);
+          return toolResult({ count: rows.length, campaigns: rows }, text);
         }
 
         case 'get_campaign': {
           const input = GetCampaignInput.parse(args);
           const res = await client.get<any>(`/campaigns/${input.campaign_id}`);
-          return { content: [{ type: 'text', text: `Campaign ${input.campaign_id}:\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { campaign_id: input.campaign_id, campaign: asObject(res) },
+            `Campaign ${input.campaign_id}:\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'create_campaign': {
@@ -2843,32 +3196,47 @@ export function createServer(
             end_date: input.end_date,
             rules: input.rules ?? [],
           });
-          return { content: [{ type: 'text', text: `✅ Campaign created.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'created', campaign: asObject(res) },
+            `✅ Campaign created.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'update_campaign': {
           const input = UpdateCampaignInput.parse(args);
           const { campaign_id, ...body } = input;
           const res = await client.patch(`/campaigns/${campaign_id}`, body);
-          return { content: [{ type: 'text', text: `✅ Campaign ${campaign_id} updated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'updated', campaign_id, campaign: asObject(res) },
+            `✅ Campaign ${campaign_id} updated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'delete_campaign': {
           const input = DeleteCampaignInput.parse(args);
           await client.delete(`/campaigns/${input.campaign_id}`);
-          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} deleted.` }] };
+          return toolResult(
+            { action: 'deleted', campaign_id: input.campaign_id, campaign: {} },
+            `✅ Campaign ${input.campaign_id} deleted.`,
+          );
         }
 
         case 'activate_campaign': {
           const input = ActivateCampaignInput.parse(args);
           const res = await client.patch(`/campaigns/${input.campaign_id}`, { is_active: true });
-          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} activated.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'activated', campaign_id: input.campaign_id, campaign: asObject(res) },
+            `✅ Campaign ${input.campaign_id} activated.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'pause_campaign': {
           const input = PauseCampaignInput.parse(args);
           const res = await client.patch(`/campaigns/${input.campaign_id}`, { is_active: false });
-          return { content: [{ type: 'text', text: `✅ Campaign ${input.campaign_id} paused.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'paused', campaign_id: input.campaign_id, campaign: asObject(res) },
+            `✅ Campaign ${input.campaign_id} paused.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         // ── Training jobs ─────────────────────────────────────────────
@@ -2879,7 +3247,8 @@ export function createServer(
           const text = formatList('training job(s)', jobs, (j) =>
             `[id: ${j.id}] status: ${j.status ?? j.sageMaker?.pipelineExecutionStatus ?? 'unknown'} (${j.created_at ?? 'unknown date'})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(jobs);
+          return toolResult({ count: rows.length, jobs: rows }, text);
         }
 
         case 'get_training_job': {
@@ -2896,7 +3265,10 @@ export function createServer(
           if (!job) {
             return { content: [{ type: 'text', text: `❌ Training job ${input.job_id} not found.` }], isError: true };
           }
-          return { content: [{ type: 'text', text: `Training job ${input.job_id}:\n${formatTrainingJob(job)}` }] };
+          return toolResult(
+            { job_id: input.job_id, job: asObject(job) },
+            `Training job ${input.job_id}:\n${formatTrainingJob(job)}`,
+          );
         }
 
         case 'create_training_job': {
@@ -2911,7 +3283,15 @@ export function createServer(
             `Job ID: ${res?.jobId ?? 'pending'}`,
             ...(res?.warning ? [`Warning: ${res.warning}`] : []),
           ];
-          return { content: [{ type: 'text', text: details.join('\n') }] };
+          return toolResult(
+            {
+              action: 'started',
+              job_id: stringOrNull(res?.jobId) ?? (res?.jobId == null ? null : String(res.jobId)),
+              warning: stringOrNull(res?.warning),
+              job: asObject(res),
+            },
+            details.join('\n'),
+          );
         }
 
         case 'cancel_training_job': {
@@ -2932,7 +3312,10 @@ export function createServer(
             executionArn: job.execution_arn,
             trainingJobArn: job.sageMaker?.trainingJobArn ?? undefined,
           });
-          return { content: [{ type: 'text', text: `✅ Training job ${input.job_id} cancelled.\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { action: 'cancelled', job_id: input.job_id, job: asObject(res) },
+            `✅ Training job ${input.job_id} cancelled.\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         // ── Analytics / Metrics ───────────────────────────────────────
@@ -2950,7 +3333,10 @@ export function createServer(
               });
 
           if (!res) {
-            return { content: [{ type: 'text', text: 'No metrics data available for the selected window.' }] };
+            return toolResult(
+              { window: input.window, metrics: {} },
+              'No metrics data available for the selected window.',
+            );
           }
 
           if (mode === 'internal') {
@@ -2961,7 +3347,10 @@ export function createServer(
                 .filter(([key]) => key !== 'served')
                 .reduce((sum, [, value]) => sum + Number(value ?? 0), 0)}`,
             ];
-            return { content: [{ type: 'text', text: lines.join('\n') }] };
+            return toolResult(
+              { window: String(res.preset ?? input.window), metrics: asObject(res) },
+              lines.join('\n'),
+            );
           }
 
           const lines = [`Ranking metrics (${input.window}):`, ''];
@@ -2976,19 +3365,28 @@ export function createServer(
               lines.push(`    Position ${i + 1}: ${(ctr * 100).toFixed(2)}%`);
             }
           }
-          return { content: [{ type: 'text', text: lines.join('\n') }] };
+          return toolResult(
+            { window: input.window, metrics: asObject(res) },
+            lines.join('\n'),
+          );
         }
 
         case 'get_experiment_metrics': {
           const input = GetExperimentMetricsInput.parse(args);
           const res = await client.get<any>(`/analytics/experiments/${input.experiment_id}`);
-          return { content: [{ type: 'text', text: `Experiment ${input.experiment_id} metrics:\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { experiment_id: input.experiment_id, metrics: asObject(res) },
+            `Experiment ${input.experiment_id} metrics:\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'get_segment_metrics': {
           const input = GetSegmentMetricsInput.parse(args);
           const res = await client.get<any>(`/analytics/segments/${input.segment_id}`, { window: input.window });
-          return { content: [{ type: 'text', text: `Segment ${input.segment_id} metrics (${input.window}):\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { segment_id: input.segment_id, window: input.window, metrics: asObject(res) },
+            `Segment ${input.segment_id} metrics (${input.window}):\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'get_user_analytics': {
@@ -2998,7 +3396,10 @@ export function createServer(
             window: input.window,
             context_id: input.context_id,
           });
-          return { content: [{ type: 'text', text: formatUserAnalytics(res, input.user_id) }] };
+          return toolResult(
+            { user_id: input.user_id, analytics: asObject(res) },
+            formatUserAnalytics(res, input.user_id),
+          );
         }
 
         case 'get_item_analytics': {
@@ -3008,7 +3409,10 @@ export function createServer(
             window: input.window,
             context_id: input.context_id,
           });
-          return { content: [{ type: 'text', text: formatItemAnalytics(res, input.item_id) }] };
+          return toolResult(
+            { item_id: input.item_id, analytics: asObject(res) },
+            formatItemAnalytics(res, input.item_id),
+          );
         }
 
         case 'compare_items': {
@@ -3020,7 +3424,10 @@ export function createServer(
             window: input.window,
             context_id: input.context_id,
           });
-          return { content: [{ type: 'text', text: formatItemComparison(res) }] };
+          return toolResult(
+            { item_a_id: input.item_a_id, item_b_id: input.item_b_id, comparison: asObject(res) },
+            formatItemComparison(res),
+          );
         }
 
         case 'top_items': {
@@ -3042,9 +3449,21 @@ export function createServer(
               context_id: input.context_id,
               limit: input.limit,
             });
-            return { content: [{ type: 'text', text: formatTopItemsFallback(res, fallbackRes) }] };
+            const fallbackItems = asObjectArray(fallbackRes?.items);
+            return toolResult({
+              metric: 'served',
+              fallback_applied: true,
+              count: fallbackItems.length,
+              items: fallbackItems,
+            }, formatTopItemsFallback(res, fallbackRes));
           }
-          return { content: [{ type: 'text', text: formatTopItems(res) }] };
+          const topItems = asObjectArray(res?.items);
+          return toolResult({
+            metric: input.metric,
+            fallback_applied: false,
+            count: topItems.length,
+            items: topItems,
+          }, formatTopItems(res));
         }
 
         // ── API Keys & Integrations ───────────────────────────────────
@@ -3055,7 +3474,8 @@ export function createServer(
           const text = formatList('API key(s)', keys, (k) =>
             `[id: ${k.id}] ${k.name} (${k.environment}, scopes: ${(k.scopes ?? []).join(', ')}, revoked: ${k.revoked})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(keys);
+          return toolResult({ count: rows.length, keys: rows }, text);
         }
 
         case 'create_api_key': {
@@ -3072,14 +3492,20 @@ export function createServer(
             '',
             `Full key: ${res.fullKey ?? res.key ?? 'see response below'}`,
           ];
-          return { content: [{ type: 'text', text: `${lines.join('\n')}\n\n${JSON.stringify(res, null, 2)}` }] };
+          return toolResult(
+            { key: asObject(res) },
+            `${lines.join('\n')}\n\n${JSON.stringify(res, null, 2)}`,
+          );
         }
 
         case 'revoke_api_key': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = RevokeApiKeyInput.parse(args);
           await client.delete(`/api/api-keys/${input.key_id}`);
-          return { content: [{ type: 'text', text: `✅ API key ${input.key_id} revoked. It will no longer authenticate.` }] };
+          return toolResult(
+            { action: 'revoked', key_id: input.key_id, key: {} },
+            `✅ API key ${input.key_id} revoked. It will no longer authenticate.`,
+          );
         }
 
         case 'list_integrations': {
@@ -3089,7 +3515,8 @@ export function createServer(
           const text = formatList('integration(s)', integrations, (i) =>
             `[id: ${i.id}] ${i.name} (type: ${i.type ?? 'n/a'}, status: ${i.status ?? 'unknown'})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const rows = asObjectArray(integrations);
+          return toolResult({ count: rows.length, integrations: rows }, text);
         }
 
         case 'list_event_types': {
@@ -3099,7 +3526,8 @@ export function createServer(
           const text = formatList('event type(s)', rows, (e) =>
             `[id: ${e.event_id}] ${e.event_name} (weight: ${e.value}, events recorded: ${e.event_count ?? 0})`,
           );
-          return { content: [{ type: 'text', text }] };
+          const eventTypeRows = asObjectArray(rows);
+          return toolResult({ count: eventTypeRows.length, event_types: eventTypeRows }, text);
         }
 
         case 'create_event_type': {
@@ -3107,7 +3535,14 @@ export function createServer(
           const eventName = String((args as any).event_name);
           const value = Number((args as any).value ?? 50);
           const res = await client.post<any>('/api/events/event-types', { event_name: eventName, value });
-          return { content: [{ type: 'text', text: `✅ Event type "${eventName}" created with id: ${res.event_id} (weight: ${value}).` }] };
+          return toolResult(
+            {
+              action: 'created',
+              event_id: intOr(res?.event_id, 0),
+              event_type: { ...asObject(res), event_name: eventName, value },
+            },
+            `✅ Event type "${eventName}" created with id: ${res.event_id} (weight: ${value}).`,
+          );
         }
 
         case 'update_event_type': {
@@ -3116,20 +3551,33 @@ export function createServer(
           const updName = String((args as any).event_name);
           const updValue = Number((args as any).value);
           await client.put<any>(`/api/events/event-types/${eventId}`, { event_name: updName, value: updValue });
-          return { content: [{ type: 'text', text: `✅ Event type ${eventId} updated — name: "${updName}", weight: ${updValue}.` }] };
+          return toolResult(
+            {
+              action: 'updated',
+              event_id: eventId,
+              event_type: { event_id: eventId, event_name: updName, value: updValue },
+            },
+            `✅ Event type ${eventId} updated — name: "${updName}", weight: ${updValue}.`,
+          );
         }
 
         case 'delete_event_type': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const delId = Number((args as any).event_id);
           await client.delete(`/api/events/event-types/${delId}`);
-          return { content: [{ type: 'text', text: `✅ Event type ${delId} deleted.` }] };
+          return toolResult(
+            { action: 'deleted', event_id: delId, event_type: {} },
+            `✅ Event type ${delId} deleted.`,
+          );
         }
 
         case 'list_platform_routes': {
           if (mode !== 'internal') return unsupportedAdminToolResponse(name, mode);
           const input = ListPlatformRoutesInput.parse(args);
-          return { content: [{ type: 'text', text: formatPlatformRoutes(input.section) }] };
+          return toolResult(
+            { section: input.section ?? null, routes: formatPlatformRoutes(input.section) },
+            formatPlatformRoutes(input.section),
+          );
         }
 
         case 'call_platform_api': {
@@ -3175,9 +3623,10 @@ export function createServer(
               };
           }
 
-          return {
-            content: [{ type: 'text', text: formatPlatformApiResponse(input.method, input.path, res) }],
-          };
+          return toolResult(
+            { method: input.method, path: input.path, response: res ?? null },
+            formatPlatformApiResponse(input.method, input.path, res),
+          );
         }
 
         default:
