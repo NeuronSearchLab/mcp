@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 1.1.0
+
+### Minor Changes
+
+- 914c607: Declare an outputSchema on every tool and return matching structuredContent, so MCP clients can read results as data instead of parsing the formatted text.
+
 ## 1.0.0
 
 ### Major Changes
