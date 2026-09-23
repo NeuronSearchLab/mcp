@@ -1,5 +1,11 @@
 # @neuronsearchlab/mcp
 
+## 1.2.0
+
+### Minor Changes
+
+- f326dd0: `track_event` records searches: send `query` (and optionally `result_item_ids`) with no `item_id`, and `event_id` defaults to the Search event. Searches steer the user's recommendations by the weight of that event.
+
 ## 1.1.0
 
 ### Minor Changes
