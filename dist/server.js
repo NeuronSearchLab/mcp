@@ -34,11 +34,24 @@ const HostedGetAutoRecommendationsInput = z.object({
     window_days: z.number().int().min(1).max(365).optional().describe('Sliding window for new content in days (1–365).'),
 }).strict();
 const TrackEventInput = z.object({
-    event_id: z.number().int().refine(value => value !== 0).describe('Non-zero integer event type ID, as configured in the admin console (Events page).'),
+    event_id: z.number().int().refine(value => value !== 0).optional().describe('Non-zero integer event type ID, as configured in the admin console (Events page). Optional for a search event, where it defaults to the Search event.'),
     user_id: z.string().describe('User who triggered the event.'),
-    item_id: z.number().int().positive().describe('Integer item ID returned by NSL ingestion.'),
+    item_id: z.number().int().positive().optional().describe('Integer item ID returned by NSL ingestion. Omit, and send query, to record a search.'),
+    query: z.string().optional().describe('What the user searched for. With no item_id this is a search event, which steers the user\'s recommendations by the weight of the Search event.'),
+    result_item_ids: z.array(z.number().int().positive()).max(50).optional().describe('Search events only: item IDs the search showed, in rank order.'),
     request_id: z.string().optional().describe('request_id from the recommendations response that led to this event — enables attribution.'),
     session_id: z.string().optional().describe('Session identifier for grouping events within a visit.'),
+}).superRefine((input, ctx) => {
+    const isSearch = input.item_id === undefined && Boolean(input.query?.trim());
+    if (!isSearch && input.item_id === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['item_id'], message: 'item_id is required unless query is sent to record a search' });
+    }
+    if (!isSearch && input.event_id === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['event_id'], message: 'event_id is required for an item event' });
+    }
+    if (!isSearch && input.result_item_ids !== undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['result_item_ids'], message: 'result_item_ids is only accepted on a search event: a query without item_id' });
+    }
 });
 const UpsertItemInput = z.object({
     name: z.string().describe('Item title or display name.'),
@@ -776,19 +789,23 @@ const TOOLS = [
     },
     {
         name: 'track_event',
-        description: 'Record a user interaction event (click, view, purchase, etc.). ' +
+        description: 'Record a user interaction event (click, view, purchase, etc.), or a search. ' +
             'Always pass the request_id from the recommendations call to enable attribution. ' +
-            'Event IDs are configured in the NeuronSearchLab admin console under Events.',
+            'Event IDs are configured in the NeuronSearchLab admin console under Events. ' +
+            'To record a search, send query (and optionally result_item_ids) with no item_id: ' +
+            'it steers the user\'s recommendations by the weight of the Search event.',
         inputSchema: {
             type: 'object',
             properties: {
-                event_id: { type: 'integer', description: 'Integer event type ID from the admin console.' },
+                event_id: { type: 'integer', description: 'Integer event type ID from the admin console. Optional for a search.' },
                 user_id: { type: 'string', description: 'User who triggered the event.' },
-                item_id: { type: 'integer', description: 'Integer item ID returned by NSL ingestion.' },
+                item_id: { type: 'integer', description: 'Integer item ID returned by NSL ingestion. Omit when recording a search.' },
+                query: { type: 'string', description: 'What the user searched for. With no item_id, records a search.' },
+                result_item_ids: { type: 'array', items: { type: 'integer' }, description: 'Search only: item IDs the search showed, in rank order.' },
                 request_id: { type: 'string', description: 'request_id from the recommendations response (for attribution).' },
                 session_id: { type: 'string', description: 'Session identifier.' },
             },
-            required: ['event_id', 'user_id', 'item_id'],
+            required: ['user_id'],
         },
     },
     {
@@ -2319,9 +2336,11 @@ export function createServer(client, mode = 'public', profile = 'default') {
                 case 'track_event': {
                     const input = TrackEventInput.parse(args);
                     const res = await client.post('/events', {
-                        event_id: input.event_id,
+                        ...(input.event_id !== undefined && { event_id: input.event_id }),
                         user_id: input.user_id,
-                        item_id: input.item_id,
+                        ...(input.item_id !== undefined && { item_id: input.item_id }),
+                        ...(input.query?.trim() && { query: input.query.trim() }),
+                        ...(input.result_item_ids && { result_item_ids: input.result_item_ids }),
                         ...(input.request_id && { request_id: input.request_id }),
                         ...(input.session_id && { session_id: input.session_id }),
                         client_ts: new Date().toISOString(),
