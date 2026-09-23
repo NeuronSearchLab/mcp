@@ -179,6 +179,45 @@ const PACKAGE_ONLY_ARGUMENTS = {
   call_platform_api: { method: 'GET', path: '/api/context' },
 };
 
+test('track_event records a search: a query with no item', async () => {
+  const posts = [];
+  const recordingClient = new Proxy(fakeClient, {
+    get(target, prop) {
+      if (prop === 'post') return async (path, body) => { posts.push({ path, body }); return { inserted: 1 }; };
+      return target[prop];
+    },
+  });
+  const server = createServer(recordingClient, 'public', 'default');
+  const client = new Client({ name: 'track-search-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    const ok = await client.callTool({
+      name: 'track_event',
+      arguments: { user_id: 'u1', query: ' trail shoes ', result_item_ids: [3, 1] },
+    });
+    assert.equal(ok.isError, undefined, ok.content?.[0]?.text);
+    assert.deepEqual(posts[0].body.query, 'trail shoes');
+    assert.deepEqual(posts[0].body.result_item_ids, [3, 1]);
+    assert.equal('item_id' in posts[0].body, false);
+    assert.equal('event_id' in posts[0].body, false);
+
+    const missingItem = await client.callTool({ name: 'track_event', arguments: { user_id: 'u1', event_id: 7 } });
+    assert.equal(missingItem.isError, true);
+    const idsOnItem = await client.callTool({
+      name: 'track_event',
+      arguments: { user_id: 'u1', event_id: 7, item_id: 1001, result_item_ids: [1] },
+    });
+    assert.equal(idsOnItem.isError, true);
+    assert.equal(posts.length, 1);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test('package-only tools with an output schema also return valid structured content', async () => {
   const server = createServer(fakeClient, 'internal', 'default');
   const client = new Client({ name: 'structured-output-default-test', version: '1.0.0' });
