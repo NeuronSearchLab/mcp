@@ -49,6 +49,8 @@ test('hosted profile exposes first-class customer tools with explicit annotation
     assert.equal(names.has('get_account_plan'), true);
     assert.equal(names.has('get_recommendations'), true);
     assert.equal(names.has('get_auto_recommendations'), true);
+    // Kept out of the submitted ChatGPT app's tool list.
+    assert.equal(names.has('get_recommendation_sets'), false);
 
     assert.equal(tools.find((tool) => tool.name === 'get_experiment_results')?.annotations?.readOnlyHint, true);
     assert.equal(tools.find((tool) => tool.name === 'refresh_experiment_results')?.annotations?.readOnlyHint, false);

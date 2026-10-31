@@ -70,6 +70,7 @@ bearer_token_env_var = "NSL_API_KEY"
 | Tool | Description |
 |------|-------------|
 | `get_recommendations` | Fetch personalised recommendations for a user |
+| `get_recommendation_sets` | Fetch every rail of a page in one request |
 | `get_auto_recommendations` | Auto-sectioned feed with pagination (infinite scroll) |
 | `track_event` | Record a user interaction (click, view, purchase, etc.) |
 | `upsert_item` | Add or update a catalogue item |
@@ -247,6 +248,25 @@ Fetch personalised recommendations for a user. Returns ranked items with scores 
 **Example**
 ```
 Get 10 recommendations for user alice@example.com using context 101
+```
+
+---
+
+### `get_recommendation_sets`
+
+Fetch every recommendation rail of a page in one request (`POST /v1/recommendations/batch`). Each set is served and billed on its own and carries its own `request_id` for attribution; a set that fails reports its own error. Not exposed in the ChatGPT app profile.
+
+**Inputs**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | One of `user_id`, `anonymous_id` | User identifier |
+| `anonymous_id` | string | One of `user_id`, `anonymous_id` | Anonymous visitor identifier |
+| `sets` | array, 1–8 entries | Yes | `{ key, context_id, limit?, item_id?, filters? }` per rail |
+
+**Example**
+```
+Get the homepage rails for alice@example.com: 12 from context 101 as "for_you" and 8 from context 102 as "trending"
 ```
 
 ---
