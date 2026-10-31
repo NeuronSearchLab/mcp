@@ -11,6 +11,17 @@ const GetRecommendationsInput = z.object({
     limit: z.number().int().min(1).max(200).optional().describe('Number of recommendations to return. Defaults to the context default (usually 20).'),
     surface: z.string().optional().describe('Rerank surface override (e.g. "homepage", "sidebar").'),
 });
+const GetRecommendationSetsInput = z.object({
+    user_id: z.string().optional().describe('User identifier. Give user_id or anonymous_id.'),
+    anonymous_id: z.string().optional().describe('Anonymous visitor identifier.'),
+    sets: z.array(z.object({
+        key: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/).describe('Your name for the rail; results come back under it.'),
+        context_id: z.number().int().positive().describe('Integer context ID for this rail.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Items for this rail (1–100).'),
+        item_id: z.number().int().positive().optional().describe('Seed item for a "more like this" rail.'),
+        filters: z.array(z.string()).max(20).optional().describe('Filter shorthand, e.g. "category:shoes".'),
+    }).strict()).min(1).max(8).describe('One entry per rail on the page, at most 8.'),
+}).strict();
 const GetAutoRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier.'),
     context_id: z.number().int().positive().optional().describe('Integer context ID for additional filters.'),
@@ -768,6 +779,39 @@ const TOOLS = [
                 surface: { type: 'string', description: 'Rerank surface override (e.g. "homepage").' },
             },
             required: ['user_id'],
+        },
+    },
+    {
+        name: 'get_recommendation_sets',
+        description: 'Fetch every recommendation rail of a page in one request (POST /v1/recommendations/batch). ' +
+            'Each set is billed on its own and returns its own request_id — pass the matching one to track_event ' +
+            'for interactions on that rail. A set that fails reports its own error without failing the others.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                user_id: { type: 'string', description: 'User identifier. Give user_id or anonymous_id.' },
+                anonymous_id: { type: 'string', description: 'Anonymous visitor identifier.' },
+                sets: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 8,
+                    description: 'One entry per rail on the page, at most 8.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            key: { type: 'string', description: 'Your name for the rail; results come back under it.' },
+                            context_id: { type: 'integer', description: 'Integer context ID for this rail.' },
+                            limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items for this rail (1–100).' },
+                            item_id: { type: 'integer', description: 'Seed item for a "more like this" rail.' },
+                            filters: { type: 'array', items: { type: 'string' }, description: 'Filter shorthand, e.g. "category:shoes".' },
+                        },
+                        required: ['key', 'context_id'],
+                        additionalProperties: false,
+                    },
+                },
+            },
+            required: ['sets'],
+            additionalProperties: false,
         },
     },
     {
@@ -1863,6 +1907,7 @@ const HOSTED_RECOMMENDATION_CONTRACTS = {
 };
 const TOOL_METADATA = {
     get_recommendations: { title: 'Get recommendations' },
+    get_recommendation_sets: { title: 'Get recommendation sets' },
     get_auto_recommendations: { title: 'Get auto recommendations' },
     track_event: { title: 'Track event', destructive: true },
     upsert_item: { title: 'Upsert catalogue item', destructive: true },
@@ -1991,6 +2036,28 @@ const TOOL_OUTPUT_SCHEMAS = {
         count: { type: 'integer', description: 'Number of recommendations returned.' },
         recommendations: RECOMMENDATION_ITEMS,
     }, ['count', 'recommendations']),
+    get_recommendation_sets: outputSchema({
+        request_id: { type: ['string', 'null'], description: 'The batch request id; each set carries its own.' },
+        sets: {
+            type: 'array',
+            description: 'One entry per requested rail, in request order.',
+            items: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                    key: { type: 'string' },
+                    status: { type: ['integer', 'null'] },
+                    request_id: { type: ['string', 'null'], description: 'Pass this to track_event for interactions on this rail.' },
+                    context_id: { type: ['integer', 'null'] },
+                    count: { type: 'integer' },
+                    recommendations: RECOMMENDATION_ITEMS,
+                    error: { type: ['object', 'null'], additionalProperties: true },
+                },
+                required: ['key', 'count', 'recommendations'],
+            },
+        },
+        usage: { type: ['object', 'null'], additionalProperties: true, description: 'Sets computed, reused and coalesced.' },
+    }, ['sets']),
     get_auto_recommendations: outputSchema({
         request_id: { type: ['string', 'null'], description: 'Pass this to track_event so interactions are attributed to this section.' },
         processing_time_ms: { type: ['number', 'null'], description: 'Server-side ranking latency.' },
@@ -2162,11 +2229,14 @@ const HOSTED_EXCLUDED_TOOLS = new Set([
     // The hosted plugin exposes first-class tools instead of an arbitrary API escape hatch.
     'list_platform_routes',
     'call_platform_api',
+    // Not part of the submitted ChatGPT app's tool list.
+    'get_recommendation_sets',
 ]);
 export function getExportedTools(mode, profile) {
     if (mode === 'internal') {
         return TOOLS.filter((tool) => [
             'get_recommendations',
+            'get_recommendation_sets',
             'get_auto_recommendations',
             'search_items',
             'explain_ranking',
@@ -2306,6 +2376,37 @@ export function createServer(client, mode = 'public', profile = 'default') {
                         count: recommendations.length,
                         recommendations,
                     }, formatRecommendations(res));
+                }
+                case 'get_recommendation_sets': {
+                    const input = GetRecommendationSetsInput.parse(args);
+                    const res = await client.post(mode === 'internal' ? '/api/recommendations/batch' : '/recommendations/batch', {
+                        ...(input.user_id ? { user_id: input.user_id } : {}),
+                        ...(input.anonymous_id ? { anonymous_id: input.anonymous_id } : {}),
+                        requests: input.sets,
+                    });
+                    const payload = asObject(res);
+                    const results = Array.isArray(payload.results) ? payload.results : [];
+                    const sets = results.map((raw) => {
+                        const result = asObject(raw);
+                        const recommendations = extractRecommendations(result);
+                        return {
+                            key: String(result.key ?? ''),
+                            status: numberOrNull(result.status),
+                            request_id: stringOrNull(result.request_id),
+                            context_id: numberOrNull(result.context_id),
+                            count: recommendations.length,
+                            recommendations,
+                            error: result.error && typeof result.error === 'object' ? result.error : null,
+                        };
+                    });
+                    const text = sets.map((set) => set.error
+                        ? `## ${set.key}\nFailed: ${String(set.error.message ?? 'error')}`
+                        : `## ${set.key} (request_id ${set.request_id ?? 'n/a'})\n${formatRecommendations({ data: set.recommendations })}`).join('\n\n');
+                    return toolResult({
+                        request_id: stringOrNull(payload.request_id),
+                        sets,
+                        usage: payload.usage && typeof payload.usage === 'object' ? payload.usage : null,
+                    }, text || 'No recommendation sets returned.');
                 }
                 case 'get_auto_recommendations': {
                     const input = (profile === 'hosted' ? HostedGetAutoRecommendationsInput : GetAutoRecommendationsInput).parse(args);

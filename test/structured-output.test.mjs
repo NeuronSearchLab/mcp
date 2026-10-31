@@ -8,7 +8,18 @@ import { createServer, getExportedTools } from '../dist/server.js';
 // example, /api/analytics/items/compare does not fall through to the per-item
 // analytics route.
 function fakePlatformResponse(path) {
+  const batch = () => ({
+    object: 'recommendation_set_list',
+    request_id: 'batch-1',
+    results: [
+      { key: 'for_you', status: 200, request_id: 'req-a', context_id: 1, data: [{ item_id: 1001, name: 'Item', score: 0.9 }] },
+      { key: 'gone', status: 404, request_id: 'req-b', context_id: 999, error: { code: 'invalid_context', message: 'Context not found' } },
+    ],
+    usage: { sets: 2, computed: 2, reused: 0, coalesced: 0 },
+  });
   const routes = [
+    ['/api/recommendations/batch', batch],
+    ['/recommendations/batch', batch],
     ['/api/events/event-types', () => [{ event_id: 7, event_name: 'click', value: 50, event_count: 3 }]],
     ['/api/recommendations', () => ({
       request_id: 'req-1',
@@ -177,7 +188,46 @@ const PACKAGE_ONLY_ARGUMENTS = {
   create_api_key: { name: 'k', environment: 'production', scopes: ['admin'] },
   list_platform_routes: {},
   call_platform_api: { method: 'GET', path: '/api/context' },
+  get_recommendation_sets: { user_id: 'u1', sets: [{ key: 'for_you', context_id: 1 }, { key: 'gone', context_id: 999 }] },
 };
+
+test('get_recommendation_sets sends every rail in one batch and reports each set', async () => {
+  const posts = [];
+  const recordingClient = new Proxy(fakeClient, {
+    get(target, prop) {
+      if (prop === 'post') return async (path, body) => { posts.push({ path, body }); return fakePlatformResponse(path); };
+      return target[prop];
+    },
+  });
+  const server = createServer(recordingClient, 'internal', 'default');
+  const client = new Client({ name: 'recommendation-sets-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const result = await client.callTool({
+      name: 'get_recommendation_sets',
+      arguments: { user_id: 'u1', sets: [{ key: 'for_you', context_id: 1, limit: 4 }, { key: 'gone', context_id: 999 }] },
+    });
+    assert.equal(result.isError, undefined, result.content?.[0]?.text);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].path, '/api/recommendations/batch');
+    assert.deepEqual(posts[0].body, { user_id: 'u1', requests: [{ key: 'for_you', context_id: 1, limit: 4 }, { key: 'gone', context_id: 999 }] });
+    const sets = result.structuredContent.sets;
+    assert.deepEqual(sets.map((set) => [set.key, set.request_id, set.count]), [['for_you', 'req-a', 1], ['gone', 'req-b', 0]]);
+    assert.equal(sets[1].error.code, 'invalid_context');
+
+    const tooMany = await client.callTool({
+      name: 'get_recommendation_sets',
+      arguments: { user_id: 'u1', sets: Array.from({ length: 9 }, (_, i) => ({ key: `k${i}`, context_id: 1 })) },
+    });
+    assert.equal(tooMany.isError, true);
+    assert.equal(posts.length, 1);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
 
 test('track_event records a search: a query with no item', async () => {
   const posts = [];

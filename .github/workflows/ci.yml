@@ -1,0 +1,36 @@
+name: CI
+
+# Pull requests: tests, distribution metadata, and a check that the committed
+# dist/ matches the source (the package and the hosted endpoint ship dist/).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check distribution metadata
+        run: npm run check:distribution-metadata
+
+      - name: Test
+        run: npm test
+
+      - name: Committed build matches the source
+        run: git diff --exit-code -- dist
