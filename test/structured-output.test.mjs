@@ -223,6 +223,22 @@ test('get_recommendation_sets sends every rail in one batch and reports each set
     });
     assert.equal(tooMany.isError, true);
     assert.equal(posts.length, 1);
+
+    const group = await client.callTool({
+      name: 'get_recommendation_sets',
+      arguments: { user_id: 'u1', group_id: 12, limit: 6, sets: [{ context_id: 2324, item_id: 3187 }] },
+    });
+    assert.equal(group.isError, undefined, group.content?.[0]?.text);
+    assert.deepEqual(posts[1].body, { user_id: 'u1', group_id: 12, limit: 6, requests: [{ context_id: 2324, item_id: 3187 }] });
+
+    const keyless = await client.callTool({
+      name: 'get_recommendation_sets',
+      arguments: { user_id: 'u1', sets: [{ context_id: 1 }] },
+    });
+    assert.equal(keyless.isError, true);
+    const nothing = await client.callTool({ name: 'get_recommendation_sets', arguments: { user_id: 'u1' } });
+    assert.equal(nothing.isError, true);
+    assert.equal(posts.length, 2);
   } finally {
     await client.close();
     await server.close();
