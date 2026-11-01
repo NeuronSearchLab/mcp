@@ -14,14 +14,26 @@ const GetRecommendationsInput = z.object({
 const GetRecommendationSetsInput = z.object({
     user_id: z.string().optional().describe('User identifier. Give user_id or anonymous_id.'),
     anonymous_id: z.string().optional().describe('Anonymous visitor identifier.'),
+    group_id: z.number().int().positive().optional().describe('Context group ID: serves every rail of the group under its context key, with the group rules.'),
+    limit: z.number().int().min(1).max(100).optional().describe('Items per rail in a group request (1–100).'),
     sets: z.array(z.object({
-        key: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/).describe('Your name for the rail; results come back under it.'),
+        key: z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/).optional().describe('Your name for the rail; results come back under it. Optional only for a group rail adjustment.'),
         context_id: z.number().int().positive().describe('Integer context ID for this rail.'),
         limit: z.number().int().min(1).max(100).optional().describe('Items for this rail (1–100).'),
         item_id: z.number().int().positive().optional().describe('Seed item for a "more like this" rail.'),
         filters: z.array(z.string()).max(20).optional().describe('Filter shorthand, e.g. "category:shoes".'),
-    }).strict()).min(1).max(8).describe('One entry per rail on the page, at most 8.'),
-}).strict();
+    }).strict()).max(8).optional().describe('One entry per rail on the page, at most 8. With group_id: optional adjustments or extra rails.'),
+}).strict().superRefine((input, ctx) => {
+    if (input.group_id === undefined && !input.sets?.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Give sets, or a group_id', path: ['sets'] });
+    }
+    if (input.group_id === undefined && input.limit !== undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'limit applies to a group request', path: ['limit'] });
+    }
+    if (input.group_id === undefined && input.sets?.some((set) => set.key === undefined)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Each set needs a key outside a group request', path: ['sets'] });
+    }
+});
 const GetAutoRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier.'),
     context_id: z.number().int().positive().optional().describe('Integer context ID for additional filters.'),
@@ -785,17 +797,19 @@ const TOOLS = [
         name: 'get_recommendation_sets',
         description: 'Fetch every recommendation rail of a page in one request (POST /v1/recommendations/batch). ' +
             'Each set is billed on its own and returns its own request_id — pass the matching one to track_event ' +
-            'for interactions on that rail. A set that fails reports its own error without failing the others.',
+            'for interactions on that rail. A set that fails reports its own error without failing the others. ' +
+            'Pass group_id to serve every rail of a context group (keyed by context key, with the group rules).',
         inputSchema: {
             type: 'object',
             properties: {
                 user_id: { type: 'string', description: 'User identifier. Give user_id or anonymous_id.' },
                 anonymous_id: { type: 'string', description: 'Anonymous visitor identifier.' },
+                group_id: { type: 'integer', description: 'Context group ID: serves every rail of the group under its context key, with the group rules.' },
+                limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Items per rail in a group request (1–100).' },
                 sets: {
                     type: 'array',
-                    minItems: 1,
                     maxItems: 8,
-                    description: 'One entry per rail on the page, at most 8.',
+                    description: 'One entry per rail on the page, at most 8. With group_id: optional adjustments (no key) or extra rails.',
                     items: {
                         type: 'object',
                         properties: {
@@ -805,12 +819,11 @@ const TOOLS = [
                             item_id: { type: 'integer', description: 'Seed item for a "more like this" rail.' },
                             filters: { type: 'array', items: { type: 'string' }, description: 'Filter shorthand, e.g. "category:shoes".' },
                         },
-                        required: ['key', 'context_id'],
+                        required: ['context_id'],
                         additionalProperties: false,
                     },
                 },
             },
-            required: ['sets'],
             additionalProperties: false,
         },
     },
@@ -2382,7 +2395,9 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     const res = await client.post(mode === 'internal' ? '/api/recommendations/batch' : '/recommendations/batch', {
                         ...(input.user_id ? { user_id: input.user_id } : {}),
                         ...(input.anonymous_id ? { anonymous_id: input.anonymous_id } : {}),
-                        requests: input.sets,
+                        ...(input.group_id !== undefined ? { group_id: input.group_id } : {}),
+                        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+                        requests: input.sets ?? [],
                     });
                     const payload = asObject(res);
                     const results = Array.isArray(payload.results) ? payload.results : [];
