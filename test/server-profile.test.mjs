@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer, getExportedTools, HOSTED_PROFILE_VERSION } from '../dist/server.js';
 
-assert.equal(HOSTED_PROFILE_VERSION, 2);
+assert.equal(HOSTED_PROFILE_VERSION, 3);
 
 async function withClient(fakeClient, profile, callback) {
   const server = createServer(fakeClient, 'internal', profile);
@@ -30,7 +30,7 @@ test('hosted profile exposes first-class customer tools with explicit annotation
 
   await withClient({}, 'hosted', async (client) => {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 55);
+    assert.equal(tools.length, 47);
 
     for (const tool of tools) {
       assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} readOnlyHint`);
@@ -317,7 +317,56 @@ test('hosted context deletion calls the tenant-scoped platform route', async () 
     assert.deepEqual(calls, [['DELETE', '/api/context/17']]);
     const text = result.content?.[0]?.text ?? '';
     assert.match(text, /Context 17 deleted/);
-    assert.match(text, /1 pipeline\(s\), 2 rule\(s\), 1 feed blueprint\(s\)/);
+    assert.match(text, /its ranking configuration and 2 rule\(s\)/);
+  });
+});
+
+test('context tools use the Context resource and send partial updates', async () => {
+  const calls = [];
+  const resource = {
+    context: { id: 17, context_name: 'Home' },
+    model: { kind: 'automatic' },
+    configuration: { template: null, stages: [{ id: 'scoring', type: 'scoring', label: 'Scoring', enabled: true, config: {} }] },
+    configuration_enabled: true,
+  };
+  const fakeClient = {
+    async get(path) { calls.push(['GET', path]); return resource; },
+    async post(path, body) { calls.push(['POST', path, body]); return { id: 18, ...resource }; },
+    async patch(path, body) { calls.push(['PATCH', path, body]); return { ok: true, ...resource }; },
+  };
+
+  await withClient(fakeClient, 'hosted', async (client) => {
+    const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
+    for (const removed of ['list_pipelines', 'get_pipeline', 'create_pipeline', 'update_pipeline', 'delete_pipeline', 'activate_pipeline', 'deactivate_pipeline', 'clone_pipeline']) {
+      assert.equal(names.has(removed), false, removed);
+    }
+
+    const read = await client.callTool({ name: 'get_context', arguments: { context_id: 17 } });
+    assert.equal(read.isError, undefined);
+    assert.deepEqual(read.structuredContent?.context?.model, { kind: 'automatic' });
+
+    await client.callTool({
+      name: 'update_context',
+      arguments: { context_id: 17, model: { kind: 'nsl', family: 'watch_next', architecture: 'gsasrec' }, configuration_enabled: false },
+    });
+    await client.callTool({ name: 'update_context', arguments: { context_id: 17, recommendation_type: 'related_items' } });
+    await client.callTool({ name: 'create_context', arguments: { context_name: 'Écran 2 Rail' } });
+
+    assert.deepEqual(calls, [
+      ['GET', '/api/context/17'],
+      ['PATCH', '/api/context/17', { model: { kind: 'nsl', family: 'watch_next', architecture: 'gsasrec' }, configuration_enabled: false }],
+      ['PATCH', '/api/context/17', { contextType: 'related_items', jsonData: { recommendation_type: 'related_items' } }],
+      ['POST', '/api/context/create', {
+        contextName: 'Écran 2 Rail',
+        contextKey: 'ecran-2-rail',
+        contextType: 'homepage_feed',
+        description: '',
+        jsonData: { recommendation_type: 'personalized_discovery' },
+      }],
+    ]);
+
+    const empty = await client.callTool({ name: 'update_context', arguments: { context_id: 17 } });
+    assert.equal(empty.isError, true);
   });
 });
 

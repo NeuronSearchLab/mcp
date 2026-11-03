@@ -32,8 +32,7 @@ If a result unexpectedly contains a secret-like value, redact it and summarize t
 
 ## Tool selection
 
-- Contexts: `list_contexts`, `get_context`, `create_context`, `update_context`, `delete_context`.
-- Pipelines: `list_pipelines`, `get_pipeline`, `create_pipeline`, `update_pipeline`, `clone_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `delete_pipeline`.
+- Contexts: `list_contexts`, `get_context`, `create_context`, `update_context`, `delete_context`. A context owns its one model choice and its ranking configuration; change ranking by reading `get_context`, editing `configuration.stages`, and passing the complete configuration to `update_context`.
 - Ranking rules: `list_rules`, `get_rule`, `create_rule`, `update_rule`, `enable_rule`, `disable_rule`, `toggle_rule`, `delete_rule`.
 - Segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`.
 - Experiments: `list_experiments`, `get_experiment`, `get_experiment_results`, `refresh_experiment_results`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`.
@@ -52,11 +51,11 @@ Do not invent unavailable tools or use an arbitrary HTTP or platform-API fallbac
 1. Use `search_items` when an item ID is not known.
 2. Use `explain_ranking` for the identified user, item, and context.
 3. Add relevant ranking, user, or item analytics when the user asks for performance context.
-4. Explain the observed signals before suggesting configuration changes. Do not change rules or pipelines unless explicitly requested.
+4. Explain the observed signals before suggesting configuration changes. Do not change rules or context configuration unless explicitly requested.
 
 ### Configure recommendations
 
-1. List and inspect the target context, pipeline, rule, or segment.
+1. List and inspect the target context, rule, or segment.
 2. Describe the proposed change and its scope when the effect is not obvious.
 3. Apply only the requested fields. Preserve unrelated configuration.
 4. Re-read and report the resulting state.

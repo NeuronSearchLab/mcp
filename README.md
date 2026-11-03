@@ -98,7 +98,6 @@ Currently supported:
 - account plan and limits: `get_account_plan` returns the effective plan, resolved limits, current usage, and exact overages
 - catalogue search and ranking debug: `search_items`, `explain_ranking`
 - contexts: `list_contexts`, `create_context`, `update_context`, `delete_context`, `get_context`
-- pipelines: `list_pipelines`, `create_pipeline`, `update_pipeline`, `delete_pipeline`, `activate_pipeline`, `deactivate_pipeline`, `clone_pipeline`, `get_pipeline`
 - rules: `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `toggle_rule`, `enable_rule`, `disable_rule`, `get_rule`
 - segments: `list_segments`, `get_segment`, `create_segment`, `update_segment`, `delete_segment`
 - experiments: `list_experiments`, `get_experiment`, `create_experiment`, `update_experiment`, `start_experiment`, `stop_experiment`, `get_experiment_results`, `refresh_experiment_results`
@@ -137,7 +136,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-**Internal mode** (admin platform — contexts, pipelines, rules, analytics, etc.):
+**Internal mode** (admin platform — contexts, rules, analytics, etc.):
 
 ```json
 {
@@ -381,28 +380,34 @@ List all recommendation contexts (feeds) configured for your team.
 
 ### `create_context`
 
-Create a new recommendation context.
+Create a recommendation context: one rail or surface. A context owns its model and its ranking configuration.
 
 **Inputs**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `context_name` | string | Yes | Display name (e.g. "Twitter Feed") |
-| `context_key` | string | No | URL-safe key (auto-derived from name) |
-| `context_type` | enum | No | `homepage_feed`, `you_may_also_like`, `item_detail_related`, `search_assist`, `campaign_merchandising`. Default: `homepage_feed` |
+| `context_name` | string | Yes | Display name (e.g. "Homepage feed") |
+| `context_key` | string | No | API identifier. Derived from the name if omitted |
 | `description` | string | No | Optional description |
-| `recommendation_type` | enum | No | `item_to_item`, `item_to_user`, `user_to_item`, `user_to_user`. Default: `user_to_item` |
+| `recommendation_type` | enum | No | `personalized_discovery`, `related_items`, `search_results`, `continue_watching`, `email_digest`, `merchandising`. Default: `personalized_discovery` |
+| `model` | object | No | See `model` below. Default: the NSL default model |
 
 **Example**
 ```
-Create a new context called "Twitter Feed" with type homepage_feed
+Create a new context called "Homepage feed"
 ```
+
+---
+
+### `get_context`
+
+Get one context: its fields, its `model`, its ranking `configuration` (`template` and serving `stages`) and `configuration_enabled` (whether serving uses that configuration).
 
 ---
 
 ### `update_context`
 
-Update an existing context.
+Update a context. Only the fields you pass change.
 
 **Inputs**
 
@@ -410,50 +415,29 @@ Update an existing context.
 |-------|------|----------|-------------|
 | `context_id` | integer | Yes | The context ID to update |
 | `context_name` | string | No | New display name |
-| `context_type` | enum | No | New context type |
 | `description` | string | No | New description |
 | `recommendation_type` | enum | No | New recommendation type |
+| `model` | object | No | The one model this context serves from (below) |
+| `configuration` | object | No | The complete `{ template, stages }`, as read from `get_context` |
+| `configuration_enabled` | boolean | No | Whether serving uses the configuration. Off serves platform defaults |
+
+`model` is one of:
+
+- `{ "kind": "automatic" }`: the NSL default model.
+- `{ "kind": "nsl", "family": "watch_next", "architecture": "gsasrec" }`: an NSL model deployed to production.
+- `{ "kind": "trained", "id": 41 }`: a trained model. It supplies its own candidates, so candidate sources and learned reranking do not apply. Personalized discovery and email digest contexts only.
 
 ---
 
 ### `delete_context`
 
-Permanently delete a context and its attached pipelines, rules, and feed blueprints.
+Permanently delete a context, its ranking configuration and its rules.
 
 **Inputs**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `context_id` | integer | Yes | The context ID to delete |
-
----
-
-### `list_pipelines`
-
-List all ranking pipelines.
-
-**Inputs** — none
-
----
-
-### `create_pipeline`
-
-Create a new ranking pipeline with default stages.
-
-**Inputs**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Pipeline name |
-| `description` | string | No | Optional description |
-| `context_id` | integer | No | Context to attach this pipeline to |
-| `is_active` | boolean | No | Default: `true` |
-
----
-
-### `update_pipeline` / `delete_pipeline`
-
-Update or delete a pipeline by `pipeline_id`.
 
 ---
 

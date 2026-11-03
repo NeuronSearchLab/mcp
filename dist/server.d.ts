@@ -3,7 +3,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { NeuronClient } from './client.js';
 export type ServerMode = 'public' | 'internal';
 export type ToolProfile = 'default' | 'hosted';
-export declare const HOSTED_PROFILE_VERSION = 2;
+export declare const HOSTED_PROFILE_VERSION = 3;
 type ToolSecurityScheme = {
     type: 'oauth2';
     scopes: string[];
