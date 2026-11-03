@@ -77,39 +77,7 @@
       "justifications": {
         "read_only_justification": "This tool permanently removes an existing recommendation context and its attached ranking configuration.",
         "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Deleting a context and its attached pipelines, rules, and feed blueprints cannot be undone."
-      }
-    },
-    "list_pipelines": {
-      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool only lists ranking pipelines and their configuration.",
-        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Listing pipelines does not modify them."
-      }
-    },
-    "create_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool creates a new ranking pipeline in the customer's workspace.",
-        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "It adds a pipeline without deleting or overwriting an existing pipeline."
-      }
-    },
-    "update_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
-      "justifications": {
-        "read_only_justification": "This tool modifies an existing ranking pipeline.",
-        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Updating a pipeline overwrites configuration and may alter live ranking behavior."
-      }
-    },
-    "delete_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": true },
-      "justifications": {
-        "read_only_justification": "This tool permanently removes a ranking pipeline.",
-        "open_world_justification": "It affects only the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Deleting a pipeline removes stored configuration and cannot be treated as a read-only action."
+        "destructive_justification": "Deleting a context, its ranking configuration and its rules cannot be undone."
       }
     },
     "list_rules": {
@@ -158,38 +126,6 @@
         "read_only_justification": "This tool only retrieves one context's customer-facing configuration.",
         "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
         "destructive_justification": "Retrieving a context has no persistent effect."
-      }
-    },
-    "get_pipeline": {
-      "annotations": { "readOnlyHint": true, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool only retrieves one pipeline's customer-facing configuration.",
-        "open_world_justification": "It reads only the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Retrieving a pipeline does not modify it."
-      }
-    },
-    "activate_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool changes a pipeline to active status.",
-        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Activation is reversible and does not delete pipeline configuration."
-      }
-    },
-    "deactivate_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool changes a pipeline to inactive status.",
-        "open_world_justification": "It writes only to the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Deactivation is reversible and preserves pipeline configuration."
-      }
-    },
-    "clone_pipeline": {
-      "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false },
-      "justifications": {
-        "read_only_justification": "This tool creates a copy of an existing pipeline.",
-        "open_world_justification": "It reads and writes only within the authenticated customer's NeuronSearchLab workspace.",
-        "destructive_justification": "Cloning adds a new pipeline and does not alter the source pipeline."
       }
     },
     "get_rule": {

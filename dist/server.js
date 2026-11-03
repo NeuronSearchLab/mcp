@@ -3,7 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 const PACKAGE_VERSION = createRequire(import.meta.url)('../package.json').version ?? '0.0.0';
-export const HOSTED_PROFILE_VERSION = 2;
+export const HOSTED_PROFILE_VERSION = 3;
 // ─── Input schemas ────────────────────────────────────────────────────────────
 const GetRecommendationsInput = z.object({
     user_id: z.string().describe('User identifier (UUID, email, or numeric string).'),
@@ -86,38 +86,62 @@ const ExplainRankingInput = z.object({
     context_id: z.number().int().positive().optional().describe('Integer context ID to apply scoring rules from.'),
 });
 // ─── Platform management schemas ──────────────────────────────────────────────
+// The console's recommendation types; each one fixes the context's serving input.
+const RECOMMENDATION_TYPES = ['personalized_discovery', 'related_items', 'search_results', 'continue_watching', 'email_digest', 'merchandising'];
+const CONTEXT_TYPE_FOR = {
+    personalized_discovery: 'homepage_feed',
+    related_items: 'related_items',
+    search_results: 'search_results',
+    continue_watching: 'continue_watching',
+    email_digest: 'email_digest',
+    merchandising: 'merchandising',
+};
+/** Mirrors the console's API identifier rule (lib/context-keys.ts#slugifyContextKey). */
+function slugifyContextKey(value) {
+    const slug = value
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/[-_]{2,}/g, '-')
+        .replace(/^[-_]+|[-_]+$/g, '')
+        .slice(0, 64)
+        .replace(/[-_]+$/g, '');
+    if (!slug)
+        return '';
+    return /^[a-z]/.test(slug) ? slug : `context-${slug}`.slice(0, 64);
+}
+const ContextModelInput = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('automatic') }),
+    z.object({
+        kind: z.literal('nsl'),
+        family: z.string().min(1).describe('Model family key, e.g. "general" or "watch_next".'),
+        architecture: z.enum(['content_embedding', 'two_tower', 'gsasrec', 'semantic_id']),
+    }),
+    z.object({ kind: z.literal('trained'), id: z.number().int().positive().describe('Trained model ID.') }),
+]).describe('The one model this context serves from.');
+const ContextConfigurationInput = z.object({
+    template: z.string().nullable().describe('Template key the configuration started from, or null.'),
+    stages: z.array(z.record(z.unknown())).describe('Complete serving stages, as returned by get_context.'),
+});
 const CreateContextInput = z.object({
-    context_name: z.string().min(1).describe('Display name for the context (e.g. "Twitter Feed", "Homepage").'),
+    context_name: z.string().min(1).describe('Display name for the context (e.g. "Homepage feed").'),
     context_key: z.string().optional().describe('URL-safe key. Auto-derived from name if omitted.'),
-    context_type: z.enum(['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising']).default('homepage_feed').describe('The type of feed surface.'),
     description: z.string().optional().describe('Optional description of this context.'),
-    recommendation_type: z.enum(['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user']).default('user_to_item').describe('The recommendation model type.'),
+    recommendation_type: z.enum(RECOMMENDATION_TYPES).default('personalized_discovery').describe('What the context serves.'),
+    model: ContextModelInput.optional(),
 });
 const UpdateContextInput = z.object({
     context_id: z.number().int().positive().describe('The context ID to update.'),
     context_name: z.string().min(1).optional().describe('New display name.'),
-    context_type: z.enum(['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising']).optional(),
     description: z.string().optional(),
-    recommendation_type: z.enum(['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user']).optional(),
+    recommendation_type: z.enum(RECOMMENDATION_TYPES).optional(),
+    model: ContextModelInput.optional(),
+    configuration: ContextConfigurationInput.optional(),
+    configuration_enabled: z.boolean().optional().describe('Whether serving uses this context\u2019s ranking configuration.'),
 });
 const DeleteContextInput = z.object({
     context_id: z.number().int().positive().describe('The context ID to delete.'),
-});
-const CreatePipelineInput = z.object({
-    name: z.string().min(1).describe('Pipeline display name.'),
-    description: z.string().optional().describe('Optional description.'),
-    context_id: z.number().int().positive().optional().describe('Context ID to attach this pipeline to.'),
-    is_active: z.boolean().default(true).describe('Whether the pipeline is active.'),
-});
-const UpdatePipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to update.'),
-    name: z.string().min(1).optional(),
-    description: z.string().optional(),
-    context_id: z.number().int().positive().optional(),
-    is_active: z.boolean().optional(),
-});
-const DeletePipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to delete.'),
 });
 const ListRulesInput = z.object({
     context_id: z.number().int().positive().optional().describe('Optional context ID to filter rules.'),
@@ -169,22 +193,9 @@ const ToggleRuleInput = z.object({
     rule_id: z.number().int().describe('The rule ID to toggle.'),
     is_active: z.boolean().describe('Whether the rule should be active.'),
 });
-// ─── Additional pipeline / rule / context schemas ─────────────────────────────
+// ─── Additional rule / context schemas ────────────────────────────────────────
 const GetContextInput = z.object({
     context_id: z.number().int().positive().describe('The context ID to retrieve.'),
-});
-const GetPipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to retrieve.'),
-});
-const ActivatePipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to activate.'),
-});
-const DeactivatePipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to deactivate.'),
-});
-const ClonePipelineInput = z.object({
-    pipeline_id: z.number().int().describe('The pipeline ID to clone.'),
-    name: z.string().min(1).describe('Name for the cloned pipeline.'),
 });
 const GetRuleInput = z.object({
     rule_id: z.number().int().describe('The rule ID to retrieve.'),
@@ -402,7 +413,6 @@ const SAFE_PLATFORM_API_PREFIXES = [
     '/api/integrations',
     '/api/items',
     '/api/models',
-    '/api/pipelines',
     '/api/recommendations',
     '/api/rules',
     '/api/search',
@@ -418,10 +428,9 @@ const PLATFORM_ROUTE_GUIDE = {
     ranking: [
         'GET /api/context -> list recommendation contexts',
         'POST /api/context/create -> create a context',
-        'PATCH /api/context/:id -> update a context',
-        'GET /api/pipelines -> list context execution configurations',
-        'POST /api/pipelines -> configure execution stages for an existing context_id',
-        'GET/PATCH /api/pipelines/:id -> inspect or update context execution stages',
+        'GET /api/context/:id -> one context with its model, ranking configuration and whether serving uses it',
+        'PATCH /api/context/:id -> partial update: contextName, description, jsonData, model, configuration, configuration_enabled',
+        'GET /api/context/:id/readiness -> serving readiness checks for a context',
         'GET /api/rules -> list rules',
         'POST /api/rules -> create a rule',
         'GET/PATCH/DELETE /api/rules/:id -> inspect, update, or delete a rule',
@@ -947,24 +956,29 @@ const TOOLS = [
     },
     {
         name: 'create_context',
-        description: 'Create a new recommendation context (feed). ' +
-            'A context defines a feed surface — e.g. a homepage feed, a "you may also like" section, or a search assist panel. ' +
-            'After creating a context, create a pipeline and optionally rules to control ranking.',
+        description: 'Create a recommendation context: one rail or surface, such as a homepage feed or a related-items rail. ' +
+            'A context owns its model and ranking configuration; use update_context to change them and the rule tools for business rules.',
         inputSchema: {
             type: 'object',
             properties: {
-                context_name: { type: 'string', description: 'Display name (e.g. "Twitter Feed", "Homepage").' },
+                context_name: { type: 'string', description: 'Display name (e.g. "Homepage feed").' },
                 context_key: { type: 'string', description: 'URL-safe key. Auto-derived from name if omitted.' },
-                context_type: {
-                    type: 'string',
-                    enum: ['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising'],
-                    description: 'The type of feed surface. Default: homepage_feed.',
-                },
                 description: { type: 'string', description: 'Optional description.' },
                 recommendation_type: {
                     type: 'string',
-                    enum: ['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user'],
-                    description: 'Recommendation model type. Default: user_to_item.',
+                    enum: ['personalized_discovery', 'related_items', 'search_results', 'continue_watching', 'email_digest', 'merchandising'],
+                    description: 'What the context serves. Default: personalized_discovery.',
+                },
+                model: {
+                    type: 'object',
+                    description: 'The one model this context serves from: {"kind":"automatic"}, {"kind":"nsl","family":"watch_next","architecture":"gsasrec"}, or {"kind":"trained","id":41}. A trained model supplies its own candidates.',
+                    properties: {
+                        kind: { type: 'string', enum: ['automatic', 'nsl', 'trained'] },
+                        family: { type: 'string', description: 'For kind "nsl": model family key.' },
+                        architecture: { type: 'string', enum: ['content_embedding', 'two_tower', 'gsasrec', 'semantic_id'], description: 'For kind "nsl".' },
+                        id: { type: 'integer', description: 'For kind "trained": trained model ID.' },
+                    },
+                    required: ['kind'],
                 },
             },
             required: ['context_name'],
@@ -972,82 +986,53 @@ const TOOLS = [
     },
     {
         name: 'update_context',
-        description: 'Update an existing recommendation context.',
+        description: 'Update a context. Only the fields you pass change. ' +
+            'To change ranking, read the context with get_context, edit its configuration.stages, and pass the complete configuration back.',
         inputSchema: {
             type: 'object',
             properties: {
                 context_id: { type: 'integer', description: 'The context ID to update.' },
                 context_name: { type: 'string', description: 'New display name.' },
-                context_type: {
-                    type: 'string',
-                    enum: ['homepage_feed', 'you_may_also_like', 'item_detail_related', 'search_assist', 'campaign_merchandising'],
-                },
                 description: { type: 'string' },
                 recommendation_type: {
                     type: 'string',
-                    enum: ['item_to_item', 'item_to_user', 'user_to_item', 'user_to_user'],
+                    enum: ['personalized_discovery', 'related_items', 'search_results', 'continue_watching', 'email_digest', 'merchandising'],
+                    description: 'What the context serves.',
                 },
+                model: {
+                    type: 'object',
+                    description: 'The one model this context serves from: {"kind":"automatic"}, {"kind":"nsl","family":"watch_next","architecture":"gsasrec"}, or {"kind":"trained","id":41}. A trained model supplies its own candidates.',
+                    properties: {
+                        kind: { type: 'string', enum: ['automatic', 'nsl', 'trained'] },
+                        family: { type: 'string', description: 'For kind "nsl": model family key.' },
+                        architecture: { type: 'string', enum: ['content_embedding', 'two_tower', 'gsasrec', 'semantic_id'], description: 'For kind "nsl".' },
+                        id: { type: 'integer', description: 'For kind "trained": trained model ID.' },
+                    },
+                    required: ['kind'],
+                },
+                configuration: {
+                    type: 'object',
+                    description: 'The complete ranking configuration: { template, stages } as returned by get_context.',
+                    properties: {
+                        template: { type: ['string', 'null'] },
+                        stages: { type: 'array', items: { type: 'object' } },
+                    },
+                    required: ['template', 'stages'],
+                },
+                configuration_enabled: { type: 'boolean', description: 'Whether serving uses this context\u2019s ranking configuration. Off serves platform defaults.' },
             },
             required: ['context_id'],
         },
     },
     {
         name: 'delete_context',
-        description: 'Delete a recommendation context. This also removes associated pipelines and rules.',
+        description: 'Delete a recommendation context, its ranking configuration and its rules.',
         inputSchema: {
             type: 'object',
             properties: {
                 context_id: { type: 'integer', description: 'The context ID to delete.' },
             },
             required: ['context_id'],
-        },
-    },
-    {
-        name: 'list_pipelines',
-        description: 'List all ranking pipelines. ' +
-            'Pipelines define the sequence of stages (candidate generation, scoring, rules, post-processing) ' +
-            'that transform raw candidates into a ranked feed.',
-        inputSchema: { type: 'object', properties: {} },
-    },
-    {
-        name: 'create_pipeline',
-        description: 'Create a new ranking pipeline with default stages. ' +
-            'Optionally attach it to a context. The pipeline starts active by default.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                name: { type: 'string', description: 'Pipeline display name.' },
-                description: { type: 'string', description: 'Optional description.' },
-                context_id: { type: 'integer', description: 'Context ID to attach this pipeline to.' },
-                is_active: { type: 'boolean', description: 'Whether the pipeline is active. Default: true.' },
-            },
-            required: ['name'],
-        },
-    },
-    {
-        name: 'update_pipeline',
-        description: 'Update an existing ranking pipeline.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to update.' },
-                name: { type: 'string', description: 'New pipeline name.' },
-                description: { type: 'string' },
-                context_id: { type: 'integer', description: 'New context ID to attach.' },
-                is_active: { type: 'boolean' },
-            },
-            required: ['pipeline_id'],
-        },
-    },
-    {
-        name: 'delete_pipeline',
-        description: 'Delete a ranking pipeline.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to delete.' },
-            },
-            required: ['pipeline_id'],
         },
     },
     {
@@ -1177,59 +1162,13 @@ const TOOLS = [
     // ── Additional context ops ─────────────────────────────────────────
     {
         name: 'get_context',
-        description: 'Get the full configuration of a specific recommendation context by ID.',
+        description: 'Get one context with its model, its ranking configuration (template and serving stages) and whether serving uses that configuration.',
         inputSchema: {
             type: 'object',
             properties: {
                 context_id: { type: 'integer', description: 'The context ID to retrieve.' },
             },
             required: ['context_id'],
-        },
-    },
-    // ── Additional pipeline ops ────────────────────────────────────────
-    {
-        name: 'get_pipeline',
-        description: 'Get the full configuration of a specific ranking pipeline by ID.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to retrieve.' },
-            },
-            required: ['pipeline_id'],
-        },
-    },
-    {
-        name: 'activate_pipeline',
-        description: 'Activate a ranking pipeline so it begins serving ranked results.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to activate.' },
-            },
-            required: ['pipeline_id'],
-        },
-    },
-    {
-        name: 'deactivate_pipeline',
-        description: 'Deactivate a ranking pipeline so it stops serving results without being deleted.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to deactivate.' },
-            },
-            required: ['pipeline_id'],
-        },
-    },
-    {
-        name: 'clone_pipeline',
-        description: 'Duplicate an existing pipeline with all its stages and configuration. Useful for creating experiment variants or safe copies before making changes.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                pipeline_id: { type: 'number', description: 'The pipeline ID to clone.' },
-                name: { type: 'string', description: 'Name for the cloned pipeline.' },
-            },
-            required: ['pipeline_id', 'name'],
         },
     },
     // ── Additional rule ops ────────────────────────────────────────────
@@ -1811,20 +1750,12 @@ const ADMIN_TOOL_NAMES = new Set([
     'create_context',
     'update_context',
     'delete_context',
-    'list_pipelines',
-    'create_pipeline',
-    'update_pipeline',
-    'delete_pipeline',
     'list_rules',
     'create_rule',
     'update_rule',
     'delete_rule',
     'toggle_rule',
     'get_context',
-    'get_pipeline',
-    'activate_pipeline',
-    'deactivate_pipeline',
-    'clone_pipeline',
     'get_rule',
     'enable_rule',
     'disable_rule',
@@ -1924,14 +1855,6 @@ const TOOL_METADATA = {
     update_context: { title: 'Update context', destructive: true },
     delete_context: { title: 'Delete context', destructive: true },
     get_context: { title: 'Get context', readOnly: true },
-    list_pipelines: { title: 'List pipelines', readOnly: true },
-    create_pipeline: { title: 'Create pipeline' },
-    update_pipeline: { title: 'Update pipeline', destructive: true },
-    delete_pipeline: { title: 'Delete pipeline', destructive: true },
-    get_pipeline: { title: 'Get pipeline', readOnly: true },
-    activate_pipeline: { title: 'Activate pipeline' },
-    deactivate_pipeline: { title: 'Deactivate pipeline' },
-    clone_pipeline: { title: 'Clone pipeline' },
     list_rules: { title: 'List rules', readOnly: true },
     create_rule: { title: 'Create rule' },
     update_rule: { title: 'Update rule', destructive: true },
@@ -2103,17 +2026,8 @@ const TOOL_OUTPUT_SCHEMAS = {
     delete_context: outputSchema({
         action: { type: 'string', description: 'The change that was applied.' },
         context_id: { type: 'integer', description: 'The context that was deleted.' },
-        deleted: { ...OUTPUT_OBJECT, description: 'Counts of associated pipelines, rules and feed blueprints removed with the context.' },
+        deleted: { ...OUTPUT_OBJECT, description: 'Counts of the ranking configuration rows, rules and templates removed with the context.' },
     }, ['action', 'context_id', 'deleted']),
-    // ── Pipelines ───────────────────────────────────────────────────────
-    list_pipelines: listOutput('pipelines', 'ranking pipelines'),
-    get_pipeline: recordOutput('pipeline', 'The requested pipeline and its stages.', { pipeline_id: { type: 'integer', description: 'The pipeline that was read.' } }, ['pipeline_id']),
-    create_pipeline: mutationOutput('pipeline', 'The newly created pipeline.'),
-    update_pipeline: mutationOutput('pipeline', 'The pipeline after the update.', 'pipeline_id'),
-    delete_pipeline: mutationOutput('pipeline', 'Confirmation of the removed pipeline.', 'pipeline_id'),
-    activate_pipeline: mutationOutput('pipeline', 'The pipeline after activation.', 'pipeline_id'),
-    deactivate_pipeline: mutationOutput('pipeline', 'The pipeline after deactivation.', 'pipeline_id'),
-    clone_pipeline: mutationOutput('pipeline', 'The new pipeline created from the source.', 'source_pipeline_id'),
     // ── Rules ───────────────────────────────────────────────────────────
     list_rules: listOutput('rules', 'ranking rules'),
     get_rule: recordOutput('rule', 'The requested rule and its conditions and actions.', { rule_id: { type: 'integer', description: 'The rule that was read.' } }, ['rule_id']),
@@ -2249,14 +2163,6 @@ export function getExportedTools(mode, profile) {
             'update_context',
             'delete_context',
             'get_context',
-            'list_pipelines',
-            'create_pipeline',
-            'update_pipeline',
-            'delete_pipeline',
-            'activate_pipeline',
-            'deactivate_pipeline',
-            'clone_pipeline',
-            'get_pipeline',
             'list_rules',
             'create_rule',
             'update_rule',
@@ -2601,10 +2507,11 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     const input = CreateContextInput.parse(args);
                     const res = await client.post('/api/context/create', {
                         contextName: input.context_name,
-                        contextKey: input.context_key,
-                        contextType: input.context_type,
-                        description: input.description,
+                        contextKey: input.context_key ?? slugifyContextKey(input.context_name),
+                        contextType: CONTEXT_TYPE_FOR[input.recommendation_type],
+                        description: input.description ?? '',
                         jsonData: { recommendation_type: input.recommendation_type },
+                        ...(input.model ? { model: input.model } : {}),
                     });
                     return toolResult({ action: 'created', context: asObject(res) }, `✅ Context created.\n${JSON.stringify(res, null, 2)}`);
                 }
@@ -2612,20 +2519,26 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     if (mode !== 'internal')
                         return unsupportedAdminToolResponse(name, mode);
                     const input = UpdateContextInput.parse(args);
-                    const listRes = await client.get('/api/context');
-                    const contexts = Array.isArray(listRes?.contexts) ? listRes.contexts : [];
-                    const existing = contexts.find((entry) => Number(entry.id) === input.context_id);
-                    if (!existing) {
-                        return { content: [{ type: 'text', text: `❌ Context ${input.context_id} not found.` }], isError: true };
+                    // PATCH is partial: only what the caller passed is sent.
+                    const body = {};
+                    if (input.context_name !== undefined)
+                        body.contextName = input.context_name;
+                    if (input.description !== undefined)
+                        body.description = input.description;
+                    if (input.recommendation_type !== undefined) {
+                        body.contextType = CONTEXT_TYPE_FOR[input.recommendation_type];
+                        body.jsonData = { recommendation_type: input.recommendation_type };
                     }
-                    const res = await client.patch(`/api/context/${input.context_id}`, {
-                        contextName: input.context_name ?? existing.name ?? existing.context_name,
-                        contextType: input.context_type ?? existing.context_type,
-                        description: input.description ?? existing.description ?? '',
-                        jsonData: input.recommendation_type
-                            ? { recommendation_type: input.recommendation_type }
-                            : undefined,
-                    });
+                    if (input.model !== undefined)
+                        body.model = input.model;
+                    if (input.configuration !== undefined)
+                        body.configuration = input.configuration;
+                    if (input.configuration_enabled !== undefined)
+                        body.configuration_enabled = input.configuration_enabled;
+                    if (Object.keys(body).length === 0) {
+                        return { content: [{ type: 'text', text: '❌ Pass at least one field to change.' }], isError: true };
+                    }
+                    const res = await client.patch(`/api/context/${input.context_id}`, body);
                     return toolResult({ action: 'updated', context_id: input.context_id, context: asObject(res) }, `✅ Context ${input.context_id} updated.\n${JSON.stringify(res, null, 2)}`);
                 }
                 case 'delete_context': {
@@ -2635,7 +2548,7 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     const res = await client.delete(`/api/context/${input.context_id}`);
                     const deleted = res?.deleted;
                     const associated = deleted
-                        ? ` Associated configuration removed: ${deleted.pipelines ?? 0} pipeline(s), ${deleted.rules ?? 0} rule(s), ${deleted.feed_blueprints ?? 0} feed blueprint(s).`
+                        ? ` Removed with it: its ranking configuration and ${deleted.rules ?? 0} rule(s).`
                         : '';
                     return toolResult({ action: 'deleted', context_id: input.context_id, deleted: asObject(deleted) }, `✅ Context ${input.context_id} deleted.${associated}`);
                 }
@@ -2643,89 +2556,8 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     if (mode !== 'internal')
                         return unsupportedAdminToolResponse(name, mode);
                     const input = GetContextInput.parse(args);
-                    const res = await client.get('/api/context');
-                    const contexts = Array.isArray(res?.contexts) ? res.contexts : [];
-                    const context = contexts.find((entry) => Number(entry.id) === input.context_id);
-                    if (!context) {
-                        return { content: [{ type: 'text', text: `❌ Context ${input.context_id} not found.` }], isError: true };
-                    }
-                    return toolResult({ context_id: input.context_id, context: asObject(context) }, `Context ${input.context_id}:\n${JSON.stringify(context, null, 2)}`);
-                }
-                // ── Pipeline management ───────────────────────────────────────
-                case 'list_pipelines': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const res = await client.get('/api/pipelines');
-                    const pipelines = Array.isArray(res?.pipelines) ? res.pipelines : [];
-                    const text = formatList('pipeline(s)', pipelines, (p) => `[id: ${p.id}] ${p.name} (context: ${p.context_id ?? 'none'}, active: ${p.is_active})`);
-                    const rows = asObjectArray(pipelines);
-                    return toolResult({ count: rows.length, pipelines: rows }, text);
-                }
-                case 'create_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = CreatePipelineInput.parse(args);
-                    const res = await client.post('/api/pipelines', {
-                        name: input.name,
-                        description: input.description,
-                        context_id: input.context_id,
-                        is_active: input.is_active,
-                    });
-                    return toolResult({ action: 'created', pipeline: asObject(res) }, `✅ Pipeline created.\n${JSON.stringify(res, null, 2)}`);
-                }
-                case 'update_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = UpdatePipelineInput.parse(args);
-                    const { pipeline_id, ...body } = input;
-                    const res = await client.patch(`/api/pipelines/${pipeline_id}`, body);
-                    return toolResult({ action: 'updated', pipeline_id, pipeline: asObject(res) }, `✅ Pipeline ${pipeline_id} updated.\n${JSON.stringify(res, null, 2)}`);
-                }
-                case 'delete_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = DeletePipelineInput.parse(args);
-                    await client.delete(`/api/pipelines/${input.pipeline_id}`);
-                    return toolResult({ action: 'deleted', pipeline_id: input.pipeline_id, pipeline: {} }, `✅ Pipeline ${input.pipeline_id} deleted.`);
-                }
-                case 'get_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = GetPipelineInput.parse(args);
-                    const res = await client.get(`/api/pipelines/${input.pipeline_id}`);
-                    return toolResult({ pipeline_id: input.pipeline_id, pipeline: asObject(res?.pipeline ?? res) }, `Pipeline ${input.pipeline_id}:\n${JSON.stringify(res, null, 2)}`);
-                }
-                case 'activate_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = ActivatePipelineInput.parse(args);
-                    const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: true });
-                    return toolResult({ action: 'activated', pipeline_id: input.pipeline_id, pipeline: asObject(res) }, `✅ Pipeline ${input.pipeline_id} activated.\n${JSON.stringify(res, null, 2)}`);
-                }
-                case 'deactivate_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = DeactivatePipelineInput.parse(args);
-                    const res = await client.patch(`/api/pipelines/${input.pipeline_id}`, { is_active: false });
-                    return toolResult({ action: 'deactivated', pipeline_id: input.pipeline_id, pipeline: asObject(res) }, `✅ Pipeline ${input.pipeline_id} deactivated.\n${JSON.stringify(res, null, 2)}`);
-                }
-                case 'clone_pipeline': {
-                    if (mode !== 'internal')
-                        return unsupportedAdminToolResponse(name, mode);
-                    const input = ClonePipelineInput.parse(args);
-                    const source = await client.get(`/api/pipelines/${input.pipeline_id}`);
-                    const pipeline = source?.pipeline;
-                    if (!pipeline) {
-                        return { content: [{ type: 'text', text: `❌ Pipeline ${input.pipeline_id} not found.` }], isError: true };
-                    }
-                    const res = await client.post('/api/pipelines', {
-                        name: input.name,
-                        description: pipeline.description,
-                        context_id: pipeline.context_id,
-                        is_active: pipeline.is_active,
-                        stages: pipeline.stages,
-                    });
-                    return toolResult({ action: 'cloned', source_pipeline_id: input.pipeline_id, pipeline: asObject(res) }, `✅ Pipeline cloned.\n${JSON.stringify(res, null, 2)}`);
+                    const res = await client.get(`/api/context/${input.context_id}`);
+                    return toolResult({ context_id: input.context_id, context: asObject(res) }, `Context ${input.context_id}:\n${JSON.stringify(res, null, 2)}`);
                 }
                 // ── Rule management ───────────────────────────────────────────
                 case 'list_rules': {
