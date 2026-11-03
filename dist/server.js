@@ -317,6 +317,8 @@ const GetTrainingJobInput = z.object({
 const CreateTrainingJobInput = z.object({
     template_id: z.number().int().positive().describe('Training template ID from the NeuronSearchLab console.'),
     training_options: z.record(z.unknown()).optional().describe('Optional training configuration overrides.'),
+    recommender_keys: z.array(z.string()).min(1).optional().describe('Catalog recommender keys. When supplied, launches the same catalog training flow as the console.'),
+    advanced_settings: z.record(z.record(z.unknown())).optional().describe('Per-recommender advanced settings for catalog training.'),
 });
 const CancelTrainingJobInput = z.object({
     job_id: z.string().describe('Training job ID returned by list_training_jobs.'),
@@ -402,7 +404,6 @@ const SAFE_PLATFORM_API_PREFIXES = [
     '/api/models',
     '/api/pipelines',
     '/api/recommendations',
-    '/api/rerank-controls',
     '/api/rules',
     '/api/search',
     '/api/security',
@@ -418,13 +419,12 @@ const PLATFORM_ROUTE_GUIDE = {
         'GET /api/context -> list recommendation contexts',
         'POST /api/context/create -> create a context',
         'PATCH /api/context/:id -> update a context',
-        'GET /api/pipelines -> list pipelines',
-        'POST /api/pipelines -> create a pipeline',
-        'GET/PATCH/DELETE /api/pipelines/:id -> inspect, update, or delete a pipeline',
+        'GET /api/pipelines -> list context execution configurations',
+        'POST /api/pipelines -> configure execution stages for an existing context_id',
+        'GET/PATCH /api/pipelines/:id -> inspect or update context execution stages',
         'GET /api/rules -> list rules',
         'POST /api/rules -> create a rule',
         'GET/PATCH/DELETE /api/rules/:id -> inspect, update, or delete a rule',
-        'GET/PUT /api/rerank-controls[?contextId=123] -> inspect or save rerank controls',
         'GET /api/explain?item_id=...&user_id=...&context_id=... -> explain ranking for an item',
     ],
     analytics: [
@@ -461,7 +461,8 @@ const PLATFORM_ROUTE_GUIDE = {
     ],
     training: [
         'GET /api/training-jobs -> list recent training jobs',
-        'POST /api/training/start -> start training from a template',
+        'POST /api/training/start -> start legacy training from a template',
+        'POST /api/training-jobs/launch -> train catalog recommenders from a template',
         'POST /api/training-jobs/stop -> stop a running training job',
         'POST /api/training-jobs/approve -> approve a model package',
         'POST /api/training-jobs/promote -> promote a model package to the endpoint',
@@ -1576,12 +1577,14 @@ const TOOLS = [
     },
     {
         name: 'create_training_job',
-        description: 'Start a model training job from an existing template. This consumes training quota and may incur usage charges; auto-promotion options can replace the model serving live traffic.',
+        description: 'Start training from an existing signal template. Supply recommender_keys to train catalog architectures through the same path as the console. This consumes training quota and may incur usage charges.',
         inputSchema: {
             type: 'object',
             properties: {
                 template_id: { type: 'number', description: 'Training template ID from the NeuronSearchLab console.' },
                 training_options: { type: 'object', description: 'Optional training configuration overrides.', additionalProperties: true },
+                recommender_keys: { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Catalog recommender keys to train; the server caps the selection at the current catalog size.' },
+                advanced_settings: { type: 'object', additionalProperties: { type: 'object', additionalProperties: true }, description: 'Per-recommender advanced settings.' },
             },
             required: ['template_id'],
         },
@@ -2995,18 +2998,24 @@ export function createServer(client, mode = 'public', profile = 'default') {
                     if (mode !== 'internal')
                         return unsupportedAdminToolResponse(name, mode);
                     const input = CreateTrainingJobInput.parse(args);
-                    const res = await client.post('/api/training/start', {
+                    const catalog = Boolean(input.recommender_keys?.length);
+                    const res = await client.post(catalog ? '/api/training-jobs/launch' : '/api/training/start', catalog ? {
+                        templateId: input.template_id,
+                        recommenderKeys: input.recommender_keys,
+                        advancedSettings: input.advanced_settings ?? {},
+                    } : {
                         templateId: input.template_id,
                         trainingOptions: input.training_options ?? {},
                     });
+                    const firstJob = catalog ? res?.jobs?.find((job) => job.ok) : null;
                     const details = [
-                        '✅ Training job started.',
-                        `Job ID: ${res?.jobId ?? 'pending'}`,
+                        catalog ? `✅ ${res?.jobs?.filter((job) => job.ok).length ?? 0} catalog training job(s) started.` : '✅ Training job started.',
+                        `Job ID: ${firstJob?.id ?? res?.jobId ?? 'pending'}`,
                         ...(res?.warning ? [`Warning: ${res.warning}`] : []),
                     ];
                     return toolResult({
                         action: 'started',
-                        job_id: stringOrNull(res?.jobId) ?? (res?.jobId == null ? null : String(res.jobId)),
+                        job_id: firstJob?.id != null ? String(firstJob.id) : stringOrNull(res?.jobId) ?? (res?.jobId == null ? null : String(res.jobId)),
                         warning: stringOrNull(res?.warning),
                         job: asObject(res),
                     }, details.join('\n'));
